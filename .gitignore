@@ -1,0 +1,4 @@
+vivado/
+boards/
+
+*.code-workspace
