@@ -23,7 +23,8 @@
 module top(
     input clk,
     output led,
-    output uart_rx_out
+    output uart_rx_out,
+    input uart_tx_in
     );
 
     reg rst_n = 0;
@@ -31,16 +32,21 @@ module top(
     reg tx_valid = 0;
     reg init = 0;
     wire tx_ready;
+    wire [7:0] rx_data;
+    wire rx_valid;
 
     always @(posedge clk) begin
         if (!init) begin
             rst_n <= 0;
             init <= 1;
-            tx_data <= "H";
         end else begin
             rst_n <= 1;
-            tx_valid <= 1;
-            tx_data <= "H";
+            if (rx_valid) begin
+                tx_valid <= 1;
+                tx_data <= rx_data;
+            end else if (tx_valid && !tx_ready) begin
+                tx_valid <= 0;
+            end
         end
     end
 
@@ -50,7 +56,11 @@ module top(
         .tx_data(tx_data),
         .tx_valid(tx_valid),
         .tx_ready(tx_ready),
-        .tx_out(uart_rx_out)
+        .tx_out(uart_rx_out),
+        .rx_data(rx_data),
+        .rx_valid(rx_valid),
+        // .rx_ack(rx_ack),
+        .rx_in(uart_tx_in)
     );
 
     assign led = uart_rx_out;

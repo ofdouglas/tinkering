@@ -19,13 +19,19 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-module uart ( 
+module uart #(parameter kLoopback = 0)(
     input wire       clk,
     input wire       rst_n,
+
     input wire [7:0] tx_data,
     input wire       tx_valid,
     output reg       tx_ready,
-    output reg       tx_out
+    output reg       tx_out,
+
+    output reg [7:0] rx_data,
+    output reg       rx_valid,
+    // input reg        rx_ack,
+    input wire       rx_in
     );
 
     // 16x oversampled 115200 baud from 100 MHz clock
@@ -83,7 +89,7 @@ module uart (
                 tx_out <= tx_buffer[0];
                 tx_buffer <= {1'b0, tx_buffer[9:1]};
                 tx_bit_count <= tx_bit_count + 1'b1;
-                if (tx_bit_count == 4'd9) begin
+                if (tx_bit_count == 4'd10) begin
                     tx_active <= 0;
                     tx_ready <= 1;
                 end
@@ -97,6 +103,63 @@ module uart (
         end else if (!tx_active) begin
             tx_out <= 1;
             tx_ready <= 1;
+        end
+    end
+
+    // Receive synchronizer
+    reg [1:0] rx_sync = 0;
+    always@(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            rx_sync <= 0;
+        end else begin
+            rx_sync <= {kLoopback ? tx_out : rx_in, rx_sync[1]};
+        end
+    end
+
+    // Receive shift registers and implicit state machine
+    reg [15:0] rx_samples = 0;
+    reg [3:0] rx_sample_count = 0;
+    reg [8:0] rx_bits = 0;
+    reg [3:0] rx_bit_count = 0;
+    reg rx_active = 0;
+
+    always@(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            rx_samples <= 0;
+            rx_sample_count <= 0;
+            rx_bits <= 0;
+            rx_bit_count <= 0;
+            rx_active <= 0;
+            rx_valid <= 0;
+            rx_data <= 0;
+        end else begin
+            rx_valid <= 0;
+            if (rx_clk_en) begin
+                rx_samples <= {rx_sync[0], rx_samples[15:1]};
+                rx_sample_count <= rx_sample_count + 1;
+
+                // Normal receive path
+                if (rx_active && rx_sample_count == 8) begin
+                    if (rx_bit_count == 9) begin    // All bits received
+                        rx_active <= 0;
+                        if (rx_bits[8] == 1) begin  // Validate stop bit
+                            rx_data <= rx_bits[7:0];
+                            rx_valid <= 1;
+                        end
+                    end else begin                  // Normal bit received
+                        rx_bit_count <= rx_bit_count + 1;
+                        // TODO: majority vote
+                        rx_bits <= {rx_samples[8], rx_bits[8:1]};
+                    end
+
+                // Start-bit detection
+                end else if (!rx_active && rx_samples[1:0] == 2'b01) begin
+                    rx_active <= 1;
+                    rx_sample_count <= 0;
+                    rx_bit_count <= 0;
+                    rx_data <= 0;
+                end
+            end
         end
     end
 
