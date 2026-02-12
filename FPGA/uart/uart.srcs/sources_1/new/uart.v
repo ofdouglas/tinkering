@@ -28,21 +28,43 @@ module uart (
     output reg       tx_out
     );
 
-    // 1 MHz clock enable signal from 100 MHz clock
-    localparam kClockDivisionFactor = 868;
+    // 16x oversampled 115200 baud from 100 MHz clock
+    localparam kClockDivisionFactor = 54;
+    localparam kOversamplingFactor = 16;
     reg [9:0] clock_div_counter = 0;
-    reg clock_enable = 0;
+    reg [3:0] oversampling_counter = 0;
+    reg rx_clk_en = 0;
+    reg tx_clk_en = 0;
 
+    // Generate RX clock enable
     always@(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             clock_div_counter <= 0;
-            clock_enable <= 0;
+            rx_clk_en <= 0;
         end else if (clock_div_counter == (kClockDivisionFactor - 1)) begin
             clock_div_counter <= 0;
-            clock_enable <= 1;
+            rx_clk_en <= 1;
         end else begin
             clock_div_counter <= clock_div_counter + 1;
-            clock_enable <= 0;
+            rx_clk_en <= 0;
+        end
+    end
+
+    // Generate TX clock enable
+    always@(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            oversampling_counter <= 0;
+            tx_clk_en <= 0;
+        end else begin
+            tx_clk_en <= 0;
+            if (rx_clk_en) begin
+                if (oversampling_counter == (kOversamplingFactor - 1)) begin
+                    oversampling_counter <= 0;
+                    tx_clk_en <= 1;
+                end else begin
+                    oversampling_counter <= oversampling_counter + 1;
+                end
+            end
         end
     end
 
@@ -57,7 +79,7 @@ module uart (
             tx_ready <= 1;
             tx_active <= 0;
         end else if (tx_active) begin
-            if (clock_enable) begin
+            if (tx_clk_en) begin
                 tx_out <= tx_buffer[0];
                 tx_buffer <= {1'b0, tx_buffer[9:1]};
                 tx_bit_count <= tx_bit_count + 1'b1;
