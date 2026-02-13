@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 
 module pipe1_en (
   input logic        clk,
@@ -72,3 +73,5 @@ module testbench ();
         end
     endtask
 endmodule
+
+`default_nettype wire

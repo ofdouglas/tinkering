@@ -1,27 +1,28 @@
 `timescale 1ns / 1ps
+//`default_nettype none
 
 module uart #(parameter kLoopback = 0)(
-    input wire       clk,
-    input wire       rst_n,
+    input logic       clk,
+    input logic       rst_n,
 
-    input wire [7:0] tx_data,
-    input wire       tx_valid,
-    output reg       tx_ready,
-    output reg       tx_out,
+    input  logic [7:0] tx_data,
+    input  logic       tx_valid,
+    output logic       tx_ready,
+    output logic       tx_out,
 
-    output reg [7:0] rx_data,
-    output reg       rx_valid,
-    // input reg        rx_ack,
-    input wire       rx_in
+    output logic [7:0] rx_data,
+    output logic       rx_valid,
+    // input logic        rx_ack,
+    input  logic       rx_in
     );
 
     // 16x oversampled 115200 baud from 100 MHz clock
     localparam kClockDivisionFactor = 54;
     localparam kOversamplingFactor = 16;
-    reg [9:0] clock_div_counter = 0;
-    reg [3:0] oversampling_counter = 0;
-    reg rx_clk_en = 0;
-    reg tx_clk_en = 0;
+    logic [9:0] clock_div_counter = 0;
+    logic [3:0] oversampling_counter = 0;
+    logic rx_clk_en = 0;
+    logic tx_clk_en = 0;
 
     // Generate RX clock enable
     always@(posedge clk or negedge rst_n) begin
@@ -56,9 +57,9 @@ module uart #(parameter kLoopback = 0)(
     end
 
     // Transmit buffer and implicit state machine
-    reg [9:0] tx_buffer = 0;
-    reg [3:0] tx_bit_count = 0;
-    reg tx_active = 0;
+    logic [9:0] tx_buffer = 0;
+    logic [3:0] tx_bit_count = 0;
+    logic tx_active = 0;
 
     always@(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -88,7 +89,7 @@ module uart #(parameter kLoopback = 0)(
     end
 
     // Receive synchronizer
-    reg [1:0] rx_sync = 0;
+    logic [1:0] rx_sync = 0;
     always@(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             rx_sync <= 0;
@@ -98,11 +99,11 @@ module uart #(parameter kLoopback = 0)(
     end
 
     // Receive shift registers and implicit state machine
-    reg [15:0] rx_samples = 0;
-    reg [3:0] rx_sample_count = 0;
-    reg [8:0] rx_bits = 0;
-    reg [3:0] rx_bit_count = 0;
-    reg rx_active = 0;
+    logic [15:0] rx_samples = 0;
+    logic [3:0] rx_sample_count = 0;
+    logic [8:0] rx_bits = 0;
+    logic [3:0] rx_bit_count = 0;
+    logic rx_active = 0;
 
     always@(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -148,19 +149,19 @@ endmodule
 
 // Top level module for UART demo
 module uart_demo(
-    input clk,
-    output led,
-    output uart_rx_out,
-    input uart_tx_in
+    input logic clk,
+    output logic led,
+    output logic uart_rx_out,
+    input logic uart_tx_in
     );
 
-    reg rst_n = 0;
-    reg [7:0] tx_data = 0;
-    reg tx_valid = 0;
-    reg init = 0;
-    wire tx_ready;
-    wire [7:0] rx_data;
-    wire rx_valid;
+    logic rst_n = 0;
+    logic [7:0] tx_data = 0;
+    logic tx_valid = 0;
+    logic init = 0;
+    logic tx_ready;
+    logic [7:0] rx_data;
+    logic rx_valid;
 
     always @(posedge clk) begin
         if (!init) begin
@@ -193,3 +194,5 @@ module uart_demo(
     assign led = uart_rx_out;
 
 endmodule
+
+`default_nettype wire

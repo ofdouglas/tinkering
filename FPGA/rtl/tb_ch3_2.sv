@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 
 module pipe2_valid (
   input        clk,
@@ -77,3 +78,5 @@ module testbench ();
 
 
 endmodule
+
+`default_nettype wire

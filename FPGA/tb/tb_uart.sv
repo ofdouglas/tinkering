@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 
 module uart_test();
     reg clk = 0;
@@ -44,3 +45,5 @@ module uart_test();
     end
   
 endmodule
+
+`default_nettype wire
