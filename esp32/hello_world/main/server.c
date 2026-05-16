@@ -21,13 +21,16 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 #include "sys/socket.h"
+#include "errno.h"
 
 /* The examples use WiFi configuration that you can set via project configuration menu
 
    If you'd rather not, just change the below entries to strings with
    the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
 */
-#define EXAMPLE_ESP_MAXIMUM_RETRY  3
+#define EXAMPLE_ESP_WIFI_SSID      "SSID"
+#define EXAMPLE_ESP_WIFI_PASS      "PASS"
+#define EXAMPLE_ESP_MAXIMUM_RETRY  10
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
@@ -38,11 +41,71 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
-
 static const char *TAG = "wifi station";
 
 static int s_retry_num = 0;
 
+void serve(void) {
+    struct sockaddr_in own_address = {};
+    own_address.sin_family = AF_INET;
+    own_address.sin_port = htons(9999);
+    own_address.sin_addr.s_addr = INADDR_ANY;
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "socket returned %d", sock);
+        return;
+    }
+
+    int err = bind(sock, (struct sockaddr *)&own_address, sizeof(own_address));
+    if (err) {
+        ESP_LOGE(TAG, "bind returned %d", err);
+        closesocket(sock);
+        return;
+    }
+
+    ESP_LOGI(TAG, "UDP echo server started");
+
+    while (true) {
+        char buf[64];
+        struct sockaddr peer = {};
+        socklen_t socklen;
+        int len = recvfrom(sock, buf, sizeof(buf), 0, &peer, &socklen);
+        if (len >= 0) {
+            sendto(sock, buf, len, 0, &peer, sizeof(peer));
+            ESP_LOGI(TAG, "Sent UPD data of len %d", len);
+        } else {
+            ESP_LOGE(TAG, "recvfrom returned %d; errno: %d", len, errno);
+            closesocket(sock);
+            return;
+        }
+    }
+}
+
+void server_task(void* context) {
+    (void) context;
+
+    while (1) {
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+            WIFI_CONNECTED_BIT,
+            pdFALSE,
+            pdFALSE,
+            portMAX_DELAY);
+
+        if ((bits & WIFI_CONNECTED_BIT) == 0) {
+            ESP_LOGE(TAG, "unexpected event bits: %x", bits);
+            continue;
+        }
+
+        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
+                EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+
+        serve();
+
+        // If we get here, there was an error in serve() -- wait and then try again if we're connected
+        vTaskDelay(3000);
+    }
+}
 
 static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
@@ -55,46 +118,18 @@ static void event_handler(void* arg, esp_event_base_t event_base,
             s_retry_num++;
             ESP_LOGI(TAG, "retry to connect to the AP");
         } else {
+            xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            ESP_LOGI(TAG,"connect to the AP fail");
         }
-        ESP_LOGI(TAG,"connect to the AP fail");
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
+        xEventGroupClearBits(s_wifi_event_group, WIFI_FAIL_BIT);
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-
-        struct sockaddr_in own_address = {};
-        own_address.sin_family = AF_INET;
-        own_address.sin_port = htons(9999);
-        own_address.sin_addr.s_addr = INADDR_ANY;
-
-        int sock = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sock < 0) {
-            ESP_LOGE(TAG, "socket returned %d", sock);
-        } else {
-            int err = bind(sock, (struct sockaddr *)&own_address, sizeof(own_address));
-            if (err) {
-                ESP_LOGE(TAG, "bind returned %d", err);
-            } else {
-                while (true) {
-                    char buf[64];
-                    struct sockaddr peer = {};
-                    socklen_t socklen;
-                    int len = recvfrom(sock, buf, sizeof(buf), 0, &peer, &socklen);
-                    if (len > 0) {
-                        sendto(sock, buf, len, 0, &peer, sizeof(peer));
-                        ESP_LOGI(TAG, "Sent UPD data");
-                    }
-                    vTaskDelay(10);
-                }
-
-
-            }
-        }
     }
 }
-
 
 void wifi_init_sta(void)
 {
@@ -139,25 +174,12 @@ void wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
     ESP_ERROR_CHECK(esp_wifi_start() );
 
+    xTaskCreate(server_task,
+        "serverTask", 
+        4096, 
+        NULL, 
+        1, 
+        NULL);
+
     ESP_LOGI(TAG, "wifi_init_sta finished.");
-
-    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
-     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-            pdFALSE,
-            pdFALSE,
-            portMAX_DELAY);
-
-    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
-     * happened. */
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
-    } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
-    } else {
-        ESP_LOGE(TAG, "UNEXPECTED EVENT");
-    }
 }
