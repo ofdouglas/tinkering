@@ -1,0 +1,18 @@
+dependencies.txt
+
+Enabled now (built):
+ADC, GPIO, TIM, UART, RCC
+MCU platform: hal, cortex, dma, exti, flash, pwr, rcc
+FreeRTOS, CMSIS
+
+Available later (sources in Drivers/, not in build):
+SPI — Drivers/.../hal_spi.c, hal_spi_ex.c
+I2C — Drivers/.../hal_i2c.c, hal_i2c_ex.c
+CAN, MPU — enable in hal_conf + sources.cli.mk when needed
+
+Removed (deleted from tree):
+USB, FatFs, display/audio HAL, DCMI, MMC, NAND, NOR, RTC, SDRAM/FMC
+CRC, ETH, QSPI, SRAM — deleted from Drivers/STM32F7xx_HAL_Driver
+
+Application:
+  main.c, freertos.c, stm32f7xx_hal_msp.c, stm32f7xx_hal_timebase_tim.c
