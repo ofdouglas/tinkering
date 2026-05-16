@@ -1,3 +1,10 @@
+*.d
+*.o
+*.su
+*.elf
+*.map
+*.cyclo
+
 vivado/
 boards/
 

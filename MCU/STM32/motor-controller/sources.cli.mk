@@ -1,9 +1,13 @@
 # Source list for command-line builds.
-# Update when adding/removing translation units.
+# Application: C++ (main.cpp). ST HAL / FreeRTOS / CMSIS: C.
+
+CPP_SOURCES = \
+	Src/main.cpp \
+	Src/bsp.cpp \
+	Src/error.cpp
 
 C_SOURCES = \
 	Src/freertos.c \
-	Src/main.c \
 	Src/stm32f7xx_hal_msp.c \
 	Src/stm32f7xx_hal_timebase_tim.c \
 	Src/stm32f7xx_it.c \

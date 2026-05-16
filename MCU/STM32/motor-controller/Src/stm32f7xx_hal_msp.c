@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "hal_msp_pins.h"
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */

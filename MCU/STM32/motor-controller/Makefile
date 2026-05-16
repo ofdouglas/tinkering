@@ -1,7 +1,7 @@
-# Makefile build for motor-controller (STM32F746NGHx, from config baseline).
-# No CubeIDE — edit sources.cli.mk when the source set changes.
+# Makefile build for motor-controller (STM32F746NGHx).
+# Application: C++ (main.cpp). ST HAL / FreeRTOS / CMSIS: C.
 #
-# Prerequisites: make + arm-none-eabi-gcc on PATH.
+# Prerequisites: make + arm-none-eabi-gcc/g++ on PATH.
 #   WSL/Linux:  sudo apt install make gcc-arm-none-eabi
 #
 # From this directory:
@@ -28,9 +28,11 @@ else
   $(error arm-none-eabi-gcc not found — install gcc-arm-none-eabi or set GCC_PATH)
 endif
 
-CC = $(GNU_BIN)arm-none-eabi-gcc$(TOOL_SUFFIX)
-AS = $(GNU_BIN)arm-none-eabi-gcc$(TOOL_SUFFIX)
-SZ = $(GNU_BIN)arm-none-eabi-size$(TOOL_SUFFIX)
+CC  = $(GNU_BIN)arm-none-eabi-gcc$(TOOL_SUFFIX)
+CXX = $(GNU_BIN)arm-none-eabi-g++$(TOOL_SUFFIX)
+AS  = $(GNU_BIN)arm-none-eabi-gcc$(TOOL_SUFFIX)
+LD  = $(CXX)
+SZ  = $(GNU_BIN)arm-none-eabi-size$(TOOL_SUFFIX)
 MKDIR = mkdir -p
 
 CPU = -mcpu=cortex-m7
@@ -39,7 +41,7 @@ MCU = $(CPU) -mthumb $(FPU)
 
 C_DEFS = -DDEBUG -DUSE_HAL_DRIVER -DSTM32F746xx
 
-C_INCLUDES = \
+INCLUDES = \
 	-IInc \
 	-IDrivers/STM32F7xx_HAL_Driver/Inc \
 	-IDrivers/STM32F7xx_HAL_Driver/Inc/Legacy \
@@ -49,20 +51,27 @@ C_INCLUDES = \
 	-IDrivers/CMSIS/Device/ST/STM32F7xx/Include \
 	-IDrivers/CMSIS/Include
 
-CFLAGS = $(MCU) $(C_DEFS) $(C_INCLUDES) -std=gnu11 -g3 -O0 \
+CFLAGS = $(MCU) $(C_DEFS) $(INCLUDES) -std=gnu11 -g3 -O0 \
 	-ffunction-sections -fdata-sections -Wall \
+	-fstack-usage --specs=nano.specs
+
+CXXFLAGS = $(MCU) $(C_DEFS) $(INCLUDES) -std=gnu++17 -g3 -O0 \
+	-ffunction-sections -fdata-sections -Wall \
+	-fno-exceptions -fno-rtti -fno-threadsafe-statics \
 	-fstack-usage --specs=nano.specs
 
 LDFLAGS = $(MCU) -TSTM32F746NGHX_FLASH.ld --specs=nosys.specs \
 	-Wl,-Map=$(BUILD_DIR)/$(TARGET).map -Wl,--gc-sections -static \
-	--specs=nano.specs -Wl,--start-group -lc -lm -Wl,--end-group
+	--specs=nano.specs \
+	-Wl,--start-group -lc -lm -lstdc++ -lsupc++ -Wl,--end-group
 
 include sources.cli.mk
 
-C_OBJS = $(addprefix $(BUILD_DIR)/,$(C_SOURCES:.c=.o))
+C_OBJS   = $(addprefix $(BUILD_DIR)/,$(C_SOURCES:.c=.o))
+CPP_OBJS = $(addprefix $(BUILD_DIR)/,$(CPP_SOURCES:.cpp=.o))
 ASM_OBJS = $(addprefix $(BUILD_DIR)/,$(ASM_SOURCES:.s=.o))
-OBJECTS = $(C_OBJS) $(ASM_OBJS)
-DEPS = $(OBJECTS:.o=.d)
+OBJECTS  = $(C_OBJS) $(CPP_OBJS) $(ASM_OBJS)
+DEPS     = $(OBJECTS:.o=.d)
 
 OPENOCD ?= openocd
 OPENOCD_IF ?= interface/stlink.cfg
@@ -73,15 +82,19 @@ OPENOCD_TGT ?= target/stm32f7x.cfg
 all: $(BUILD_DIR)/$(TARGET).elf size
 
 $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) STM32F746NGHX_FLASH.ld
-	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
+	$(LD) $(OBJECTS) $(LDFLAGS) -o $@
 
 $(BUILD_DIR)/%.o: %.c
 	@$(MKDIR) $(dir $@)
 	$(CC) -c $(CFLAGS) -MMD -MP -MF $(@:.o=.d) -o $@ $<
 
+$(BUILD_DIR)/%.o: %.cpp
+	@$(MKDIR) $(dir $@)
+	$(CXX) -c $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -o $@ $<
+
 $(BUILD_DIR)/%.o: %.s
 	@$(MKDIR) $(dir $@)
-	$(AS) -c $(MCU) $(C_DEFS) $(C_INCLUDES) -x assembler-with-cpp \
+	$(AS) -c $(MCU) $(C_DEFS) $(INCLUDES) -x assembler-with-cpp \
 		--specs=nano.specs -MMD -MP -MF $(@:.o=.d) -o $@ $<
 
 size: $(BUILD_DIR)/$(TARGET).elf
