@@ -4,7 +4,7 @@
 CPP_SOURCES = \
 	Src/main.cpp \
 	Src/bsp.cpp \
-	Src/error.cpp
+	Src/log.cpp
 
 C_SOURCES = \
 	Src/freertos.c \

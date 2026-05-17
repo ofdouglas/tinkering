@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #include "stm32f7xx_hal.h"
-#include "error.h"
+#include "log_c.h"
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 

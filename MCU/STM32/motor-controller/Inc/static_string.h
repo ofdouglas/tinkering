@@ -1,11 +1,23 @@
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
 
-struct StaticString {
-  const char *const data;
-  const size_t length;
+class StaticString {
+public:
+    constexpr StaticString(const char *data, size_t length) : data_(data), length_(length) {}
+
+    constexpr const char *data() const { return data_; }
+    constexpr size_t length() const { return length_; }
+
+private:
+    const char *data_;
+    size_t length_;
 };
 
-#define STATIC_STRING(s) \
-  StaticString { (s), sizeof(s) - 1U }
+inline namespace literals {
+inline constexpr StaticString operator""_lit(const char *data, size_t length) {
+    return StaticString{data, length};
+}
+} /* literals */
+
+#define STATIC_STRING(s) StaticString((s), sizeof(s) - 1U)
