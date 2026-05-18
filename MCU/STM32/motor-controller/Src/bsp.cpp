@@ -8,8 +8,6 @@
 #include "bsp.h"
 #include "log.hpp"
 
-using namespace literals;
-
 Bsp bsp;
 
 void Bsp::init() {
@@ -18,6 +16,12 @@ void Bsp::init() {
     configureSystemClock();
     configureGpio();
     configureUsart1();
+    configureTim1();
+}
+
+bool Bsp::uartReady() const {
+    return huart1.Instance != nullptr &&
+           huart1.gState != HAL_UART_STATE_RESET;
 }
 
 void Bsp::configureMpu() {
@@ -59,11 +63,11 @@ void Bsp::configureSystemClock() {
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLQ = 9;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        logging::fatal("RCC osc config failed\n"_lit);
+        LOG_FATAL() << "RCC osc config failed";
     }
 
     if (HAL_PWREx_EnableOverDrive() != HAL_OK) {
-        logging::fatal("PWR over-drive failed\n"_lit);
+        LOG_FATAL() << "PWR over-drive failed";
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
@@ -74,8 +78,16 @@ void Bsp::configureSystemClock() {
     RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_6) != HAL_OK) {
-        logging::fatal("RCC clock config failed\n"_lit);
+        LOG_FATAL() << "RCC clock config failed";
     }
+}
+
+void Bsp::configureTim1() {
+    htim1.Instance = TIM1;
+    htim1.Init.Prescaler = 0;
+    htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim1.Init.Period = 0;
+    htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
 }
 
 void Bsp::configureUsart1() {
@@ -90,7 +102,7 @@ void Bsp::configureUsart1() {
     huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
     huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
     if (HAL_UART_Init(&huart1) != HAL_OK) {
-        logging::fatal("USART1 init failed\n"_lit);
+        LOG_FATAL() << "USART1 init failed";
     }
 }
 
@@ -112,6 +124,6 @@ void Bsp::ledToggle() {
     HAL_GPIO_TogglePin(led_gpio, led_pin);
 }
 
-HAL_StatusTypeDef Bsp::uartTransmit(const uint8_t *data, uint16_t len, uint32_t timeout) {
-    return HAL_UART_Transmit(&huart1, const_cast<uint8_t *>(data), len, timeout);
+HAL_StatusTypeDef Bsp::uartTransmit(const uint8_t* data, uint16_t len, uint32_t timeout) {
+    return HAL_UART_Transmit(&huart1, const_cast<uint8_t*>(data), len, timeout);
 }

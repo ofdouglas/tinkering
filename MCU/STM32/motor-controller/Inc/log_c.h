@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-void log_fatal_c(const char *file, uint32_t line, const char *msg, size_t msg_len)
+void log_fatal_c(const char* file, uint32_t line, const char* msg, size_t msg_len)
     __attribute__((noreturn));
 
 #define FATAL(msg) log_fatal_c(__FILE__, __LINE__, (msg), sizeof(msg) - 1U)

@@ -55,7 +55,7 @@ CFLAGS = $(MCU) $(C_DEFS) $(INCLUDES) -std=gnu11 -g3 -O0 \
 	-ffunction-sections -fdata-sections -Wall \
 	-fstack-usage --specs=nano.specs
 
-CXXFLAGS = $(MCU) $(C_DEFS) $(INCLUDES) -std=gnu++17 -g3 -O0 \
+CXXFLAGS = $(MCU) $(C_DEFS) $(INCLUDES) -std=gnu++11 -g3 -O0 \
 	-ffunction-sections -fdata-sections -Wall \
 	-fno-exceptions -fno-rtti -fno-threadsafe-statics \
 	-fstack-usage --specs=nano.specs

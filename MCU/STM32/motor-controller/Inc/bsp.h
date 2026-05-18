@@ -9,6 +9,9 @@
 #define BSP_H
 
 #include "main.h"
+#include "stm32f7xx_hal_tim.h"
+#include "stm32f7xx_hal_uart.h"
+#include "stm32f7xx_hal_gpio.h"
 
 /* On-board indicator: GPIOI pin 3 (Arduino D7 on Discovery header) */
 #define BSP_LED_GPIO_Port GPIOI
@@ -17,20 +20,24 @@
 class Bsp
 {
 public:
+  TIM_HandleTypeDef htim1{};
+
   UART_HandleTypeDef huart1{};
 
-  GPIO_TypeDef *led_gpio = BSP_LED_GPIO_Port;
+  GPIO_TypeDef* led_gpio = BSP_LED_GPIO_Port;
   uint16_t led_pin = BSP_LED_Pin;
 
   /** MPU, HAL_Init, clocks, GPIO, USART1. */
   void init();
 
   void ledToggle();
-  HAL_StatusTypeDef uartTransmit(const uint8_t *data, uint16_t len, uint32_t timeout);
+  HAL_StatusTypeDef uartTransmit(const uint8_t* data, uint16_t len, uint32_t timeout);
+  bool uartReady() const;
 
 private:
   void configureMpu();
   void configureSystemClock();
+  void configureTim1();
   void configureGpio();
   void configureUsart1();
 };
