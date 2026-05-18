@@ -9,6 +9,8 @@
 #include "bsp.h"
 #include "log.hpp"
 
+#include "deferred_logger.hpp"
+
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -22,8 +24,9 @@ constexpr UBaseType_t kLedTaskPriority = tskIDLE_PRIORITY + 1;
 void UartTask(void* argument) {
     (void)argument;
 
-    uint32_t x = 1;
-    LOG_INFO() << "Hello from STM32 motor controller version "_l << x;
+    {
+        DEFERRED_LOG_INFO() << "Deferred log test: x=" << (uint32_t)1U << ", y=" << (int32_t)2U;
+    }
 
     for (;;) {
         LOG_INFO() << "Uptime: "_l << HAL_GetTick() << " ms"_l;
@@ -63,6 +66,7 @@ int main(void) {
     vTaskStartScheduler();
 
     LOG_FATAL() << "scheduler start failed"_l;
+    return 1;
 }
 
 extern "C" {
@@ -80,4 +84,4 @@ void assert_failed(uint8_t* file, uint32_t line) {
 }
 #endif
 
-} /* extern "C" */
+}
