@@ -9,7 +9,7 @@
 #include "bsp.h"
 #include "log.hpp"
 
-#include "deferred_logger.hpp"
+#include "deferred_logger.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
