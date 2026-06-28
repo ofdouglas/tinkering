@@ -4,8 +4,12 @@
 *.elf
 *.map
 *.cyclo
+*.hex
+*.lst
 
 vivado/
 boards/
+_backup/
+FPGA/cpu/mem/
 
 *.code-workspace
