@@ -71,7 +71,7 @@ module uart #(parameter kLoopback = 0)(
                 tx_out <= tx_buffer[0];
                 tx_buffer <= {1'b0, tx_buffer[9:1]};
                 tx_bit_count <= tx_bit_count + 1'b1;
-                if (tx_bit_count == 4'd10) begin
+                if (tx_bit_count == 4'd9) begin
                     tx_active <= 0;
                     tx_ready <= 1;
                 end

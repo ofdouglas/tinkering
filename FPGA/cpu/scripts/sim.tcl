@@ -1,4 +1,4 @@
-# Run system_tb for 500us and check for completion.
+# Run system_tb long enough for the firmware UART message to complete.
 set script_dir [file dirname [file normalize [info script]]]
 set cpu_root   [file normalize [file join $script_dir ..]]
 set hex_src    [file join $cpu_root mem firmware.hex]
@@ -18,6 +18,6 @@ if {![file isdirectory $xsim_dir]} {
 file copy -force $hex_src [file join $xsim_dir firmware.hex]
 puts "Copied firmware.hex -> $xsim_dir"
 
-run 500us
+run 2ms
 close_sim -force
 puts "simulation completed successfully"
