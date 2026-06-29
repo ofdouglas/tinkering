@@ -7,18 +7,11 @@ module system(
     input logic uart_rx_in
 );
 
-localparam int RESET_CYCLES = 8;
-logic [$clog2(RESET_CYCLES + 1) - 1:0] reset_cnt = '0;
 logic rst_n;
-
-always_ff @(posedge clk) begin
-    if (reset_cnt < RESET_CYCLES) begin
-        reset_cnt <= reset_cnt + 1'b1;
-        rst_n     <= 1'b0;
-    end else begin
-        rst_n     <= 1'b1;
-    end
-end
+reset_control reset_controller(
+    .clk(clk),
+    .rst_n(rst_n)
+);
 
 // Instruction ROM for the CPU
 bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_bus();
@@ -39,7 +32,7 @@ gpio system_gpio (
     .bus(gpio_bus.slave),
     .led_driver_enables(sys_gpio_led_enables)
 );
-assign led[7:0] = {cpu_trap, rom_trap, 2'b0, sys_gpio_led_enables[3:0]};
+assign led[7:0] = {cpu_trap, unaligned_write_trap, rom_trap, 1'b0, sys_gpio_led_enables[3:0]};
 
 // Debug UART
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) uart_bus();
@@ -58,9 +51,27 @@ logic memory_access_valid;
 logic cpu_request;
 logic cpu_trap;
 logic rom_trap;
+logic unaligned_write_trap;
 
 logic is_write;
 assign is_write = |byte_enables;
+
+always_comb begin
+    logic aligned_write;
+    case (address_bus[1:0])
+        // 1, 2, or 4 bytes
+        2'b00 : aligned_write = (byte_enables == 4'b0001) || (byte_enables == 4'b0011) || (byte_enables == 4'b1111);
+        // 1 byte
+        2'b01 : aligned_write = (byte_enables == 4'b0010);
+        // 1 or 2 bytes
+        2'b10 : aligned_write = (byte_enables == 4'b0100) || (byte_enables == 4'b1100);
+        // 1 byte
+        2'b11 : aligned_write = (byte_enables == 4'b1000);
+        default : aligned_write = 0;
+    endcase
+
+    unaligned_write_trap = cpu_request && is_write && !aligned_write;
+end
 
 logic [3:0] region;
 assign region = address_bus[19:16];

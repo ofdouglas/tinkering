@@ -19,3 +19,5 @@ always_ff @(posedge clk) begin
         rst_n     <= 1'b1;
     end
 end
+
+endmodule
