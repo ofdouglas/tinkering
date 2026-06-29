@@ -7,7 +7,7 @@ module system(
     input logic uart_rx_in
 );
 
-localparam int RESET_CYCLES = 16;
+localparam int RESET_CYCLES = 8;
 logic [$clog2(RESET_CYCLES + 1) - 1:0] reset_cnt = '0;
 logic rst_n;
 
@@ -32,23 +32,22 @@ block_sram cpu_sram (
     .bus(sram_bus.slave)
 );
 
-// LED Register
-logic [31:0] led_bits;          // Offset 0
-assign led[3:0] = led_bits[3:0];
-assign led[4] = 0;
-assign led[5] = 0;
-assign led[6] = rom_trap;
-assign led[7] = cpu_trap;
+// GPIO (LED control)
+bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) gpio_bus();
+logic [7:0] sys_gpio_led_enables;
+gpio system_gpio (
+    .bus(gpio_bus.slave),
+    .led_driver_enables(sys_gpio_led_enables)
+);
+assign led[7:0] = {cpu_trap, rom_trap, 2'b0, sys_gpio_led_enables[3:0]};
 
-// UART Registers
-logic [7:0] uart_reg_tx_data;   // Offset 4
-logic       uart_tx_ready;
-logic       uart_tx_strobe;
-logic [7:0] uart_rx_data_r;
-logic       uart_rx_valid_w;
-
-
-
+// Debug UART
+bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) uart_bus();
+uart_periph uart0 (
+    .bus(uart_bus.slave),
+    .uart_tx_out(uart_tx_out),
+    .uart_rx_in(uart_rx_in)
+);
 
 // System bus. address_bus[19:0] is used. [19:16] select regions
 logic [31:0] address_bus;
@@ -72,18 +71,30 @@ assign region_ram  = (region == REGION_RAM);
 assign region_led  = (region == REGION_LED);
 assign region_uart = (region == REGION_UART);
 
-logic led_write, uart_write;
-assign led_write    = region_led && cpu_request && is_write;
-assign uart_write   = region_uart && cpu_request && is_write;
-
 always_comb begin
     unique case (region)
         REGION_ROM : memory_access_valid = !is_write && rom_bus.rd_valid;
         REGION_RAM : memory_access_valid = is_write ? sram_bus.wr_ack : sram_bus.rd_valid;
-        REGION_LED : memory_access_valid = 1;
-        REGION_UART : memory_access_valid = 1;
+        REGION_LED : memory_access_valid = is_write ? gpio_bus.wr_ack : gpio_bus.rd_valid;
+        REGION_UART : memory_access_valid = is_write ? uart_bus.wr_ack : uart_bus.rd_valid;
         default : memory_access_valid = 0;
     endcase
+end
+
+// Read bus multiplexing
+always_comb begin
+    data_read_bus = '0;
+    if (cpu_request && !is_write) begin
+       unique case (region)
+            REGION_ROM  : data_read_bus = rom_bus.rd_data;
+            REGION_RAM  : data_read_bus = sram_bus.rd_data;
+            REGION_LED  : data_read_bus = gpio_bus.rd_data;
+            REGION_UART : data_read_bus = uart_bus.rd_data;
+            default     : data_read_bus = '0;
+        endcase
+    end else begin
+        data_read_bus = '0;
+    end
 end
 
 
@@ -102,60 +113,19 @@ assign sram_bus.wr_strobe = byte_enables;
 assign sram_bus.wr_data = data_write_bus;
 assign sram_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
 
+assign gpio_bus.clk   = clk;
+assign gpio_bus.rst_n = rst_n;
+assign gpio_bus.valid = region_led && cpu_request;
+assign gpio_bus.wr_strobe = byte_enables;
+assign gpio_bus.wr_data = data_write_bus;
+assign gpio_bus.addr = address_bus[PERIPH_ADDR_MSB:2];
 
-// Bus multiplexing
-always_comb begin
-    data_read_bus = '0;
-    if (cpu_request && !is_write) begin
-       unique case (region)
-            REGION_ROM  : data_read_bus = rom_bus.rd_data;
-            REGION_RAM  : data_read_bus = sram_bus.rd_data;
-            REGION_LED  : data_read_bus = led_bits;
-            REGION_UART : data_read_bus = uart_module_out;
-            default     : data_read_bus = '0;
-        endcase
-    end else begin
-        data_read_bus = '0;
-    end
-end
-
-
-// UART module registers
-always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-        uart_reg_tx_data <= '0;
-        uart_tx_strobe   <= 1'b0;
-    end else begin
-        uart_tx_strobe <= 1'b0;
-        if (uart_tx_ready && uart_write && byte_enables[0] && address_bus[3:2] == 2'b01) begin
-            uart_reg_tx_data <= data_write_bus[7:0];
-            uart_tx_strobe   <= 1'b1;
-        end
-    end
-end
-
-logic [7:0]  uart_module_out;
-always_comb begin
-    case (address_bus[3:2])
-        2'b00 : uart_module_out = {5'b0, uart_tx_strobe, uart_rx_valid_w, uart_tx_ready};
-        2'b01 : uart_module_out = uart_reg_tx_data;
-        2'b10 : uart_module_out = uart_rx_data_r;
-        default : uart_module_out = '0;
-    endcase
-end
-
-// LED registers
-always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-        led_bits <= '0;
-    end else begin
-        for (int i = 0; i < 4; i++) begin
-            if (led_write && byte_enables[i]) begin
-                led_bits[8*i +: 8] <= data_write_bus[8*i +: 8];
-            end
-        end
-    end
-end
+assign uart_bus.clk   = clk;
+assign uart_bus.rst_n = rst_n;
+assign uart_bus.valid = region_uart && cpu_request;
+assign uart_bus.wr_strobe = byte_enables;
+assign uart_bus.wr_data = data_write_bus;
+assign uart_bus.addr = address_bus[PERIPH_ADDR_MSB:2];
 
 
  picorv32 cpu(
@@ -187,18 +157,6 @@ end
     .trace_valid(),
     .trace_data()
  );
-
-  uart uart1(
-    .clk(clk),
-    .rst_n(rst_n),
-    .tx_data(uart_reg_tx_data),
-    .tx_valid(uart_tx_strobe),
-    .tx_ready(uart_tx_ready),
-    .tx_out(uart_tx_out),
-    .rx_data(uart_rx_data_r),
-    .rx_valid(uart_rx_valid_w),
-    .rx_in(uart_rx_in)
-    );
 
 endmodule
 
