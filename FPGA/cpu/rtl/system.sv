@@ -20,56 +20,17 @@ always_ff @(posedge clk) begin
     end
 end
 
-// System bus. address_bus[19:0] is used. [19:16] select regions
-logic [31:0] address_bus;
-logic [31:0] data_read_bus;
-logic [31:0] data_write_bus;
-logic [ 3:0] byte_enables;
-logic read_bus_valid;
-logic cpu_request;
-logic cpu_trap;
-logic rom_trap;
-
-logic is_write;
-assign is_write = |byte_enables;
-
-logic [3:0] region;
-assign region = address_bus[19:16];
-
-logic region_rom, region_ram, region_led, region_uart;
-assign region_rom  = (region == REGION_ROM);
-assign region_ram  = (region == REGION_RAM);
-assign region_led  = (region == REGION_LED);
-assign region_uart = (region == REGION_UART);
-
-logic ram_write, led_write, uart_write;
-assign ram_write    = region_ram && cpu_request && is_write;
-assign led_write    = region_led && cpu_request && is_write;
-assign uart_write   = region_uart && cpu_request && is_write;
-
-assign read_bus_valid = (region_rom && rom_bus.rd_valid) || region_ram || region_led || region_uart;
-
 // Instruction ROM for the CPU
 bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_bus();
-
 block_rom cpu_rom (
     .bus(rom_bus.slave)
 );
 
-assign rom_bus.clk   = clk;
-assign rom_bus.rst_n = rst_n;
-assign rom_bus.valid = region_rom && cpu_request && !is_write;
-assign rom_bus.wr_strobe = '0;
-assign rom_bus.wr_data = '0;
-assign rom_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
-assign rom_trap = rom_bus.error;
-
-
-
-
 // Data RAM for the CPU
-logic [31:0] data_ram_array [0:1023];
-logic [31:0] data_ram_out;
+bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) sram_bus();
+block_sram cpu_sram (
+    .bus(sram_bus.slave)
+);
 
 // LED Register
 logic [31:0] led_bits;          // Offset 0
@@ -89,13 +50,66 @@ logic       uart_rx_valid_w;
 
 
 
+// System bus. address_bus[19:0] is used. [19:16] select regions
+logic [31:0] address_bus;
+logic [31:0] data_read_bus;
+logic [31:0] data_write_bus;
+logic [ 3:0] byte_enables;
+logic memory_access_valid;
+logic cpu_request;
+logic cpu_trap;
+logic rom_trap;
+
+logic is_write;
+assign is_write = |byte_enables;
+
+logic [3:0] region;
+assign region = address_bus[19:16];
+
+logic region_rom, region_ram, region_led, region_uart;
+assign region_rom  = (region == REGION_ROM);
+assign region_ram  = (region == REGION_RAM);
+assign region_led  = (region == REGION_LED);
+assign region_uart = (region == REGION_UART);
+
+logic led_write, uart_write;
+assign led_write    = region_led && cpu_request && is_write;
+assign uart_write   = region_uart && cpu_request && is_write;
+
+always_comb begin
+    unique case (region)
+        REGION_ROM : memory_access_valid = !is_write && rom_bus.rd_valid;
+        REGION_RAM : memory_access_valid = is_write ? sram_bus.wr_ack : sram_bus.rd_valid;
+        REGION_LED : memory_access_valid = 1;
+        REGION_UART : memory_access_valid = 1;
+        default : memory_access_valid = 0;
+    endcase
+end
+
+
+assign rom_bus.clk   = clk;
+assign rom_bus.rst_n = rst_n;
+assign rom_bus.valid = region_rom && cpu_request && !is_write;
+assign rom_bus.wr_strobe = '0;
+assign rom_bus.wr_data = '0;
+assign rom_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
+assign rom_trap = rom_bus.error;
+
+assign sram_bus.clk   = clk;
+assign sram_bus.rst_n = rst_n;
+assign sram_bus.valid = region_ram && cpu_request;
+assign sram_bus.wr_strobe = byte_enables;
+assign sram_bus.wr_data = data_write_bus;
+assign sram_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
+
+
 // Bus multiplexing
 always_comb begin
     data_read_bus = '0;
     if (cpu_request && !is_write) begin
        unique case (region)
             REGION_ROM  : data_read_bus = rom_bus.rd_data;
-            REGION_RAM  : data_read_bus = data_ram_out;
+            REGION_RAM  : data_read_bus = sram_bus.rd_data;
             REGION_LED  : data_read_bus = led_bits;
             REGION_UART : data_read_bus = uart_module_out;
             default     : data_read_bus = '0;
@@ -105,16 +119,6 @@ always_comb begin
     end
 end
 
-
-// RAM
-assign data_ram_out = data_ram_array[address_bus[11:2]];
-always_ff @(posedge clk) begin
-    for (int i = 0; i < 4; i++) begin
-        if (ram_write && byte_enables[i]) begin
-            data_ram_array[address_bus[11:2]][8*i +: 8] <= data_write_bus[8*i +: 8];
-        end
-    end
-end
 
 // UART module registers
 always_ff @(posedge clk or negedge rst_n) begin
@@ -160,7 +164,7 @@ end
     .trap(cpu_trap),
     .mem_valid(cpu_request),
     .mem_instr(),
-    .mem_ready(read_bus_valid),
+    .mem_ready(memory_access_valid),
     .mem_addr(address_bus),
     .mem_wdata(data_write_bus),
     .mem_wstrb(byte_enables),

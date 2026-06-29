@@ -16,6 +16,7 @@ interface bus_slave_interface #(
     logic                ready;
     logic                rd_valid;
     logic [31 : 0]       rd_data;
+    logic                wr_ack;
     logic                error;
 
     modport master (
@@ -24,7 +25,7 @@ interface bus_slave_interface #(
     );
 
     modport slave (
-        output ready, rd_data, rd_valid, error,
+        output ready, rd_data, rd_valid, wr_ack, error,
         input clk, rst_n, valid, wr_strobe, wr_data, addr
     );
 endinterface

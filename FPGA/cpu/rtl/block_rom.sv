@@ -11,6 +11,8 @@ logic [31:0] rom_word_array [0 : NUM_WORDS-1];
 logic [31:0] rom_word_out = '0;
 assign bus.rd_data = rom_word_out;
 
+assign bus.wr_ack = 0;
+
 always_ff @(posedge bus.clk) begin
     if (!bus.rst_n) begin
         bus.ready <= 1;
