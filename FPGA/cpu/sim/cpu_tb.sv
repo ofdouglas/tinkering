@@ -4,7 +4,7 @@ module cpu_tb;
 
     localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
     localparam time TEST_TIMEOUT = 5us;
-    localparam int ROM_ADDR_BITS = 4;
+    localparam int ROM_ADDR_BITS = 8;
     localparam int ROM_WORDS = 2 ** ROM_ADDR_BITS;
     localparam logic [31:0] NOP_INSTRUCTION = 32'h0000_0013;
 
@@ -129,6 +129,27 @@ module cpu_tb;
         check_register(8, 32'hedcb_a222);
         check_register(9, 32'h0000_0011);
         check_register(10, 32'hffff_fec0);
+        check_register(11, 32'h0000_0050);
+        check_register(12, 32'hffff_ffff);
+        check_register(13, 32'h0000_007f);
+        check_register(14, 32'h0000_00fc);
+        check_register(15, 32'h3fff_fff0);
+        check_register(16, 32'hffff_fff0);
+        check_register(17, 32'h007e_0000);
+        check_register(18, 32'h0000_0001);
+        check_register(19, 32'hffff_ffff);
+        check_register(20, 32'h0000_003f);
+        check_register(21, 32'h0000_003f);
+        check_register(22, 32'h0000_0190);
+        check_register(23, 32'h0000_0023);
+        check_register(24, 32'h0000_01c4);
+        check_register(25, 32'h0000_0025);
+        check_register(26, 32'h0000_01cc);
+        check_register(27, 32'h0000_0000);
+        check_register(28, 32'hedcb_a21d);
+        check_register(29, 32'hedcb_a23f);
+        check_register(30, 32'h0000_0022);
+        check_register(31, 32'hdb97_5000);
     endtask
 
     always_ff @(posedge clk) begin
@@ -143,7 +164,7 @@ module cpu_tb;
         @(negedge clk);
         rst_n = 1'b1;
 
-        repeat (32) @(posedge clk);
+        repeat (400) @(posedge clk);
         check_cputest_registers();
         if (!test_failed) begin
             $display("[%0t] PASS: CPU test firmware register results verified", $time);

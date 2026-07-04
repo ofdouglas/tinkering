@@ -37,11 +37,11 @@ typedef enum logic [2:0] { // funct_3[2:0]
     ALU_SLTI   = 3'b010,
     ALU_SLTIU  = 3'b011,
     ALU_XORI   = 3'b100,
-    ALU_SRLI   = 3'b101,
+    ALU_SRAI   = 3'b101,
     ALU_ORI    = 3'b110,
     ALU_ANDI   = 3'b111
 } alu_immediate_e;
-localparam logic [2:0] ALU_SRAI = ALU_SRLI; // SRAI shares funct3; imm[11:5] differentiates it.
+localparam logic [2:0] ALU_SRLI = ALU_SRAI; // SRAI shares funct3; imm[11:5] differentiates it.
 
 typedef enum logic [1:0] { // funct_3[1:0]
     LOGIC_XOR   = 2'b00,
@@ -75,7 +75,7 @@ typedef enum logic [0:0] { // funct_7[5]
 typedef enum logic [0:0] { // funct_7[5]
    SHIFTER_CTRL_SRL  = 1'b0,
    SHIFTER_CTRL_SRA  = 1'b1
-} shifter_ctrl_e;
+} shift_sign_e;
 
 typedef enum logic [1:0] {
     ALU_MUX_LOGIC   = 2'b00,
@@ -83,7 +83,7 @@ typedef enum logic [1:0] {
     ALU_MUX_SHIFT   = 2'b10,
     ALU_MUX_COMPARE = 2'b11
 } alu_mux_e;
-localparam logic [1:0] ALU_MUX_DEFAULT = ALU_MUX_LOGIC;
+localparam alu_mux_e ALU_MUX_DEFAULT = ALU_MUX_LOGIC;
 
 typedef enum logic [2:0] {
     BRCH_BEQ      = 3'b000,
@@ -112,7 +112,7 @@ typedef enum logic [0:0] { // funct_3[2]
 // TODO: compute all ALU mux values in decode, rather than passing instruction types
 typedef struct packed {
     adder_ctrl_e   adder_ctrl;
-    shifter_ctrl_e shifter_ctrl;
+    shift_sign_e   shift_sign_ctrl;
     logic          is_unsigned;
     logic          is_lui_instr;
     alu_mux_e      alu_mux_ctrl;

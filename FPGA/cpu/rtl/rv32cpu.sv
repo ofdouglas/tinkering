@@ -212,7 +212,7 @@ always_comb begin
             right_op = immediate_bits;
             wb_ctrl.writeback_en  = 1'b1;
             alu_ctrl.is_unsigned  = alu_immediate_e'(funct_3) == ALU_SLTIU;
-            alu_ctrl.shifter_ctrl = funct_7[5] ? SHIFTER_CTRL_SRA : SHIFTER_CTRL_SRL;
+            alu_ctrl.shift_sign_ctrl = funct_7[5] ? SHIFTER_CTRL_SRA : SHIFTER_CTRL_SRL;
 
             case (alu_immediate_e'(funct_3))
                 ALU_ADDI:  alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
@@ -220,7 +220,7 @@ always_comb begin
                 ALU_SLTI:  alu_ctrl.alu_mux_ctrl = ALU_MUX_COMPARE;
                 ALU_SLTIU: alu_ctrl.alu_mux_ctrl = ALU_MUX_COMPARE;
                 ALU_XORI:  alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;
-                ALU_SRLI:  alu_ctrl.alu_mux_ctrl = ALU_MUX_SHIFT;
+                ALU_SRAI:  alu_ctrl.alu_mux_ctrl = ALU_MUX_SHIFT;
                 ALU_ORI:   alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;
                 ALU_ANDI:  alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;
                 default:   alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
@@ -233,6 +233,7 @@ always_comb begin
             alu_ctrl.is_unsigned = (alu_register_e'(funct_3) == ALU_SLTU);
             alu_ctrl.adder_ctrl = ((alu_register_e'(funct_3) == ALU_ADD) && (funct_7[5] == 1'b0))
                                    ? ADDER_CTRL_ADD : ADDER_CTRL_SUB;
+            alu_ctrl.shift_sign_ctrl = funct_7[5] ? SHIFTER_CTRL_SRA : SHIFTER_CTRL_SRL;
 
             case (alu_register_e'(funct_3))
                 ALU_ADD:  alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
@@ -272,7 +273,7 @@ always_ff @(posedge clk) begin
         // Data path
         decode_regs.left_operand                 <= left_op;
         decode_regs.right_operand                <= right_op;
-        decode_regs.current_pc                   <= fetch_regs.current_pc;
+        decode_regs.current_pc                   <= fetch_regs.fetch_pc;
         decode_regs.branch_immediate             <= immediate_bits;
         decode_regs.store_value                  <= rs2_reg_mux;
 
@@ -304,12 +305,10 @@ assign alu_right = decode_regs.right_operand;
 // Shifter and Logic units
 always_comb begin
     alu_logic_e logic_ctrl;
-    alu_shift_e shift_ctrl;
     logic is_arithmetic;
 
-    is_arithmetic = decode_regs.alu_ctrl.shifter_ctrl == SHIFTER_CTRL_SRA;
+    is_arithmetic = decode_regs.alu_ctrl.shift_sign_ctrl == SHIFTER_CTRL_SRA;
     logic_ctrl =  decode_regs.alu_ctrl.is_lui_instr ? LOGIC_LUI : alu_logic_e'(decode_regs.funct_3[1:0]);
-    shift_ctrl = decode_regs.alu_ctrl.shifter_ctrl;
 
     case (alu_logic_e'(logic_ctrl))
         LOGIC_XOR: logic_result = decode_regs.left_operand ^ decode_regs.right_operand;
@@ -319,10 +318,20 @@ always_comb begin
         default:   logic_result = 'x;
     endcase
 
-    case (alu_shift_e'(shift_ctrl))
-        SHIFT_LEFT:  shifter_result = alu_left << alu_right[4:0];
-        SHIFT_RIGHT: shifter_result = is_arithmetic ? ($signed(alu_left) >>> alu_right[4:0]) : (alu_left >> alu_right[4:0]);
-        default:     shifter_result = 'x;
+    case (alu_shift_e'(decode_regs.funct_3[2]))
+        SHIFT_LEFT: begin
+            shifter_result = alu_left << alu_right[4:0];
+        end
+        SHIFT_RIGHT: begin
+            if (is_arithmetic) begin
+                shifter_result = $signed(alu_left) >>> alu_right[4:0];
+            end else begin
+                shifter_result = alu_left >> alu_right[4:0];
+            end
+        end
+        default: begin
+            shifter_result = 'x;
+        end
     endcase
 end
 
@@ -350,16 +359,22 @@ always_comb begin
     logic [31:0] base_address, address_sum;
     cmp_type_e cmp_type;
     logic equal_flag;
+    logic less_flag;
     logic branch_taken;
 
-    cmp_type = cmp_type_e'({decode_regs.funct_3[2], decode_regs.funct_3[0]});
+    cmp_type = decode_regs.jump_branch_ctrl.is_branch_instr
+        ? cmp_type_e'({decode_regs.funct_3[2], decode_regs.funct_3[0]})
+        : CMP_LT;
     equal_flag = alu_left == alu_right;
+    less_flag = decode_regs.alu_ctrl.is_unsigned
+        ? (alu_left < alu_right)
+        : ($signed(alu_left) < $signed(alu_right));
 
     case (cmp_type)
         CMP_EQ:  compare_result = equal_flag;
         CMP_NE:  compare_result = ~equal_flag;
-        CMP_LT:  compare_result = negative_flag;
-        CMP_GE:  compare_result = ~negative_flag;
+        CMP_LT:  compare_result = less_flag;
+        CMP_GE:  compare_result = ~less_flag;
         default: compare_result = 'x;
     endcase
 
