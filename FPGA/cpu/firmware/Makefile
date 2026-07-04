@@ -2,42 +2,63 @@ PREFIX = riscv64-unknown-elf-
 ARCH   = -march=rv32i -mabi=ilp32
 CFLAGS = $(ARCH) -Os -ffreestanding -nostdlib
 LDFLAGS = $(ARCH) -T linker.ld -nostdlib
+BUILD_DIR = build
 HEX_INSTALL = ../mem/firmware.hex
-CPUTEST_HEX_INSTALL = ../mem/cputest.hex
+FIRMWARE_ELF = $(BUILD_DIR)/firmware.elf
+FIRMWARE_HEX = $(BUILD_DIR)/firmware.hex
+FIRMWARE_LST = $(BUILD_DIR)/firmware.lst
+START_OBJ = $(BUILD_DIR)/start.o
+MAIN_OBJ = $(BUILD_DIR)/main.o
+CPUTEST ?= cputest
+CPUTEST_SRC = cputest/$(CPUTEST).s
+CPUTEST_EXPECTED_SRC = cputest/$(CPUTEST).expected
+CPUTEST_OBJ = $(BUILD_DIR)/$(CPUTEST).o
+CPUTEST_ELF = $(BUILD_DIR)/$(CPUTEST).elf
+CPUTEST_HEX = $(BUILD_DIR)/$(CPUTEST).hex
+CPUTEST_LST = $(BUILD_DIR)/$(CPUTEST).lst
+CPUTEST_HEX_INSTALL = ../mem/$(CPUTEST).hex
+CPUTEST_EXPECTED_INSTALL = ../mem/$(CPUTEST).expected
 
-all: firmware.hex firmware.lst
+all: $(FIRMWARE_HEX) $(FIRMWARE_LST)
 
-cputest: cputest.hex cputest.lst
+cputest: $(CPUTEST_HEX) $(CPUTEST_LST) $(CPUTEST_EXPECTED_INSTALL)
 
-firmware.hex: firmware.elf
+$(BUILD_DIR):
+	mkdir -p $@
+
+$(FIRMWARE_HEX): $(FIRMWARE_ELF)
 	$(PREFIX)objcopy -O verilog --verilog-data-width=4 $< $@
 	@mkdir -p $(dir $(HEX_INSTALL))
 	cp $@ $(HEX_INSTALL)
-firmware.lst: firmware.elf
+$(FIRMWARE_LST): $(FIRMWARE_ELF)
 	$(PREFIX)objdump -d -S $< > $@
 
-cputest.hex: cputest.elf
+$(CPUTEST_HEX): $(CPUTEST_ELF)
 	$(PREFIX)objcopy -O verilog --verilog-data-width=4 $< $@
 	@mkdir -p $(dir $(CPUTEST_HEX_INSTALL))
 	cp $@ $(CPUTEST_HEX_INSTALL)
-cputest.lst: cputest.elf
+$(CPUTEST_LST): $(CPUTEST_ELF)
 	$(PREFIX)objdump -d -S $< > $@
 
-firmware.elf: start.o main.o
+$(CPUTEST_EXPECTED_INSTALL): $(CPUTEST_EXPECTED_SRC)
+	@mkdir -p $(dir $@)
+	cp $< $@
+
+$(FIRMWARE_ELF): $(START_OBJ) $(MAIN_OBJ)
 	$(PREFIX)gcc $(LDFLAGS) -o $@ $^ -lgcc
 
-cputest.elf: cputest/cputest.o
+$(CPUTEST_ELF): $(CPUTEST_OBJ)
 	$(PREFIX)gcc $(LDFLAGS) -o $@ $^ -lgcc
 
-start.o: start.S
+$(START_OBJ): start.S | $(BUILD_DIR)
 	$(PREFIX)gcc $(CFLAGS) -c $< -o $@
 
-main.o: main.c
+$(MAIN_OBJ): main.c | $(BUILD_DIR)
 	$(PREFIX)gcc $(CFLAGS) -c $< -o $@
 
-cputest/cputest.o: cputest/cputest.s
+$(CPUTEST_OBJ): $(CPUTEST_SRC) | $(BUILD_DIR)
 	$(PREFIX)gcc $(CFLAGS) -c $< -o $@
 
 .PHONY: all cputest clean
 clean:
-	rm -f *.o cputest/*.o firmware.elf firmware.hex firmware.lst cputest.elf cputest.hex cputest.lst $(HEX_INSTALL) $(CPUTEST_HEX_INSTALL)
+	rm -rf $(BUILD_DIR) *.o cputest/*.o *.elf *.hex *.lst ../mem/*.hex ../mem/*.expected

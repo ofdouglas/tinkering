@@ -136,6 +136,16 @@ jump_jalr_target:
     nop
     addi  x25, x0, 0x25      /* verify x25 = 0x00000025 */
 
+    addi  x27, x0, 0         /* verify x27 = 0xfffffcf3 */
+    sw    x31, 0(x27)
+    lw    x28, 0(x27)        /* verify x28 = 0xdb975000 */
+    sb    x2, 4(x27)
+    lbu   x29, 4(x27)        /* verify x29 = 0x000000c0 */
+    lb    x30, 4(x27)        /* verify x30 = 0xffffffc0 */
+    sh    x5, 8(x27)
+    lhu   x31, 8(x27)        /* verify x31 = 0x0000fcf3 */
+    lh    x27, 8(x27)
+
     /* Wait for all test results to reach registers */
     nop
     nop

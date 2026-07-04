@@ -6,6 +6,9 @@ module cpu_tb;
     localparam time TEST_TIMEOUT = 5us;
     localparam int ROM_ADDR_BITS = 8;
     localparam int ROM_WORDS = 2 ** ROM_ADDR_BITS;
+    localparam int DATA_ADDR_BITS = 6;
+    localparam int DATA_WORDS = 2 ** DATA_ADDR_BITS;
+    localparam int NUM_REGS = 32;
     localparam logic [31:0] NOP_INSTRUCTION = 32'h0000_0013;
 
     logic clk;
@@ -25,18 +28,26 @@ module cpu_tb;
     logic error;
 
     logic [31:0] instruction_rom [0:ROM_WORDS-1];
+    logic [31:0] expected_registers [0:NUM_REGS-1];
     logic [ROM_ADDR_BITS-1:0] rom_word_addr;
     logic fetch_in_range;
+    logic [31:0] data_ram [0:DATA_WORDS-1];
+    logic [DATA_ADDR_BITS-1:0] data_word_addr;
+    logic data_in_range;
+    logic data_write;
 
     assign rom_word_addr = fetch_addr[ROM_ADDR_BITS+1:2];
     assign fetch_in_range = (fetch_addr[31:ROM_ADDR_BITS+2] == '0);
     assign instruction_fetch = fetch_in_range ? instruction_rom[rom_word_addr] : NOP_INSTRUCTION;
     assign fetch_valid = rst_n && fetch_in_range;
 
-    assign rd_valid = valid && (wr_strobe == 4'b0000);
-    assign rd_data = '0;
-    assign wr_ack = valid && (wr_strobe != 4'b0000);
-    assign error = 1'b0;
+    assign data_word_addr = addr[DATA_ADDR_BITS+1:2];
+    assign data_in_range = (addr[31:DATA_ADDR_BITS+2] == '0);
+    assign data_write = valid && (wr_strobe != 4'b0000);
+    assign rd_valid = valid && (wr_strobe == 4'b0000) && data_in_range;
+    assign rd_data = data_in_range ? data_ram[data_word_addr] : '0;
+    assign wr_ack = data_write && data_in_range;
+    assign error = valid && !data_in_range;
 
     rv32cpu dut (
         .clk         (clk),
@@ -66,17 +77,50 @@ module cpu_tb;
         end
     endtask
 
+    task automatic try_load_expected(input string expected_path, output bit loaded);
+        int expected_file;
+
+        expected_file = $fopen(expected_path, "r");
+        loaded = (expected_file != 0);
+        if (loaded) begin
+            $fclose(expected_file);
+            $readmemh(expected_path, expected_registers);
+            $display("cpu_tb: loaded CPU expected registers from %s", expected_path);
+        end
+    endtask
+
     initial begin
         clk = 1'b0;
         forever #(CLK_PERIOD / 2) clk = ~clk;
     end
 
     initial begin
+        for (int i = 0; i < DATA_WORDS; i++) begin
+            data_ram[i] = '0;
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (rst_n && data_write && data_in_range) begin
+            for (int i = 0; i < 4; i++) begin
+                if (wr_strobe[i]) begin
+                    data_ram[data_word_addr][8*i +: 8] <= wr_data[8*i +: 8];
+                end
+            end
+        end
+    end
+
+    initial begin
         bit rom_loaded;
+        bit expected_loaded;
         string rom_path;
+        string expected_path;
 
         for (int i = 0; i < ROM_WORDS; i++) begin
             instruction_rom[i] = NOP_INSTRUCTION;
+        end
+        for (int i = 0; i < NUM_REGS; i++) begin
+            expected_registers[i] = 'x;
         end
 
         rom_loaded = 1'b0;
@@ -101,6 +145,29 @@ module cpu_tb;
         if (!rom_loaded) begin
             $fatal(1, "cpu_tb: could not load cputest.hex; run make cputest in firmware/");
         end
+
+        expected_loaded = 1'b0;
+        if ($value$plusargs("CPUTEST_EXPECTED=%s", expected_path)) begin
+            try_load_expected(expected_path, expected_loaded);
+        end else begin
+            try_load_expected("cputest.expected", expected_loaded);
+            if (!expected_loaded) begin
+                try_load_expected("mem/cputest.expected", expected_loaded);
+            end
+            if (!expected_loaded) begin
+                try_load_expected("../mem/cputest.expected", expected_loaded);
+            end
+            if (!expected_loaded) begin
+                try_load_expected("../../../../../cpu/mem/cputest.expected", expected_loaded);
+            end
+            if (!expected_loaded) begin
+                try_load_expected("../../../../../../cpu/mem/cputest.expected", expected_loaded);
+            end
+        end
+
+        if (!expected_loaded) begin
+            $fatal(1, "cpu_tb: could not load cputest.expected; run make cputest in firmware/");
+        end
     end
 
     task automatic fail(input string message);
@@ -119,42 +186,14 @@ module cpu_tb;
     endtask
 
     task automatic check_cputest_registers;
-        check_register(1, 32'h0000_003f);
-        check_register(2, 32'hffff_ffc0);
-        check_register(3, 32'h1234_5000);
-        check_register(4, 32'hedcb_a000);
-        check_register(5, 32'hffff_fcf3);
-        check_register(6, 32'hffff_fcf3);
-        check_register(7, 32'hffff_fbbb);
-        check_register(8, 32'hedcb_a222);
-        check_register(9, 32'h0000_0011);
-        check_register(10, 32'hffff_fec0);
-        check_register(11, 32'h0000_0050);
-        check_register(12, 32'hffff_ffff);
-        check_register(13, 32'h0000_007f);
-        check_register(14, 32'h0000_00fc);
-        check_register(15, 32'h3fff_fff0);
-        check_register(16, 32'hffff_fff0);
-        check_register(17, 32'h007e_0000);
-        check_register(18, 32'h0000_0001);
-        check_register(19, 32'hffff_ffff);
-        check_register(20, 32'h0000_003f);
-        check_register(21, 32'h0000_003f);
-        check_register(22, 32'h0000_0190);
-        check_register(23, 32'h0000_0023);
-        check_register(24, 32'h0000_01c4);
-        check_register(25, 32'h0000_0025);
-        check_register(26, 32'h0000_01cc);
-        check_register(27, 32'h0000_0000);
-        check_register(28, 32'hedcb_a21d);
-        check_register(29, 32'hedcb_a23f);
-        check_register(30, 32'h0000_0022);
-        check_register(31, 32'hdb97_5000);
+        for (int i = 1; i < NUM_REGS; i++) begin
+            check_register(i, expected_registers[i]);
+        end
     endtask
 
     always_ff @(posedge clk) begin
-        if (rst_n && valid) begin
-            fail($sformatf("unexpected data bus access: addr=0x%08x wr_strobe=0x%x", {addr, 2'b00}, wr_strobe));
+        if (rst_n && valid && !data_in_range) begin
+            fail($sformatf("data bus access out of range: addr=0x%08x wr_strobe=0x%x", {addr, 2'b00}, wr_strobe));
         end
     end
 
@@ -164,7 +203,7 @@ module cpu_tb;
         @(negedge clk);
         rst_n = 1'b1;
 
-        repeat (400) @(posedge clk);
+        repeat (450) @(posedge clk);
         check_cputest_registers();
         if (!test_failed) begin
             $display("[%0t] PASS: CPU test firmware register results verified", $time);

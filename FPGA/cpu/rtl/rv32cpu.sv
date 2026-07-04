@@ -84,6 +84,7 @@ assign funct_3 = fetch_regs.instruction[14:12];
 
 // Datapath results
 logic [31:0] rs1_reg_mux, rs2_reg_mux, immediate_bits, left_op, right_op, store_value;
+logic [31:0] alu_result;
 
 // Control signals
 AluControls        alu_ctrl;
@@ -94,18 +95,23 @@ logic              invalid_opcode;
 
 // Read register file, with forwarding logic
 always_comb begin
-    logic [4:0] rs1_reg_select, rs2_reg_select, mem_rd_reg_select, wb_rd_reg_select;
-    logic mem_valid, wb_valid;
+    logic [4:0] rs1_reg_select, rs2_reg_select, exec_rd_reg_select, mem_rd_reg_select, wb_rd_reg_select;
+    logic exec_valid, mem_valid, wb_valid;
 
     rs1_reg_select = instr[19:15];
     rs2_reg_select = instr[24:20];
+    exec_rd_reg_select = decode_regs.wb_ctrl.rd_reg_select;
     mem_rd_reg_select = memory_regs.wb_ctrl.rd_reg_select;
     wb_rd_reg_select = execute_regs.wb_ctrl.rd_reg_select;
+    exec_valid = decode_regs.valid && decode_regs.wb_ctrl.writeback_en &&
+        !decode_regs.mem_ctrl.memory_request && !decode_regs.jump_branch_ctrl.is_jump_instr;
     mem_valid = memory_regs.valid && memory_regs.wb_ctrl.writeback_en;
     wb_valid = execute_regs.valid && execute_regs.wb_ctrl.writeback_en;
 
     if (rs1_reg_select == '0) begin
         rs1_reg_mux = '0;
+    end else if (exec_valid && (exec_rd_reg_select == rs1_reg_select)) begin
+        rs1_reg_mux = alu_result;
     end else if (mem_valid && (mem_rd_reg_select == rs1_reg_select)) begin
         rs1_reg_mux = memory_regs.writeback_data;
     end else if (wb_valid && (wb_rd_reg_select == rs1_reg_select)) begin
@@ -116,6 +122,8 @@ always_comb begin
 
     if (rs2_reg_select == '0) begin
         rs2_reg_mux = '0;
+    end else if (exec_valid && (exec_rd_reg_select == rs2_reg_select)) begin
+        rs2_reg_mux = alu_result;
     end else if (mem_valid && (mem_rd_reg_select == rs2_reg_select)) begin
         rs2_reg_mux = memory_regs.writeback_data;
     end else if (wb_valid && (wb_rd_reg_select == rs2_reg_select)) begin
@@ -388,7 +396,6 @@ always_comb begin
 end
 
 // ALU Result
-logic [31:0] alu_result;
 always_comb begin
     case (alu_mux_e'(decode_regs.alu_ctrl.alu_mux_ctrl))
         ALU_MUX_LOGIC:   alu_result = logic_result;
@@ -428,6 +435,11 @@ logic [3:0] byte_lanes;
 logic [31:0] shifted_wr_data, shifted_rd_data;
 logic mem_stall;
 
+assign valid = execute_regs.valid && execute_regs.mem_ctrl.memory_request;
+assign wr_data = shifted_wr_data;
+assign addr = execute_regs.exec_result[31:2];
+assign wr_strobe = (execute_regs.valid && execute_regs.mem_ctrl.memory_write) ? byte_lanes : '0;
+
 always_comb begin
     mem_size_e mem_size;
     logic      zero_extend;
@@ -466,7 +478,7 @@ always_comb begin
         4'b0010 : shifted_rd_data = zero_extend ? {24'd0, rd_data[15:8]}  : {{24{rd_data[15]}}, rd_data[15:8]};
         4'b0100 : shifted_rd_data = zero_extend ? {24'd0, rd_data[23:16]} : {{24{rd_data[23]}}, rd_data[23:16]};
         4'b1000 : shifted_rd_data = zero_extend ? {24'd0, rd_data[31:24]} : {{24{rd_data[31]}}, rd_data[31:24]};
-        4'b0011 : shifted_rd_data = zero_extend ? {16'd0, rd_data[15:0]}    : {{16{rd_data[31]}}, rd_data[15:0]};
+        4'b0011 : shifted_rd_data = zero_extend ? {16'd0, rd_data[15:0]}    : {{16{rd_data[15]}}, rd_data[15:0]};
         4'b1100 : shifted_rd_data = zero_extend ? {16'd0, rd_data[31:16]}   : {{16{rd_data[31]}}, rd_data[31:16]};
         4'b1111 : shifted_rd_data = rd_data;
         default : shifted_rd_data = 'x;
@@ -475,26 +487,19 @@ end
 
 always_ff @(posedge clk) begin
     if (!rst_n) begin
-        valid <= 1'b0;
-        wr_strobe <= 4'h0;
         memory_regs <= '0;
     end else begin  
         // TODO: if other stall sources are added, this block ignores them!
         // TOOD: assumes 1-cycle access, never stalls! Check rd_valid and wr_ack!
-        memory_regs.mem_stall <= 1'b0;
-    
-        // Disable Load/Store unit for now
-        valid <= 1'b0;
-        // valid <= execute_regs.valid && execute_regs.mem_ctrl.memory_request;
-        wr_data <= shifted_wr_data;
-        addr <= execute_regs.exec_result[31:2];
-        wr_strobe <= execute_regs.mem_ctrl.memory_write ? byte_lanes : '0;
+        memory_regs.mem_stall <= mem_stall;
 
-        memory_regs.valid <= execute_regs.valid; // TODO
-        memory_regs.writeback_data <= execute_regs.mem_ctrl.memory_request ? shifted_rd_data : execute_regs.exec_result;
-        memory_regs.jump_branch_ctrl <= execute_regs.jump_branch_ctrl;
-        memory_regs.wb_ctrl <= execute_regs.wb_ctrl;
-        memory_regs.pc_plus4 <= execute_regs.current_pc + 32'd4; // JAL/JALR need PC+4
+        if (!mem_stall) begin
+            memory_regs.valid <= execute_regs.valid;
+            memory_regs.writeback_data <= execute_regs.mem_ctrl.memory_request ? shifted_rd_data : execute_regs.exec_result;
+            memory_regs.jump_branch_ctrl <= execute_regs.jump_branch_ctrl;
+            memory_regs.wb_ctrl <= execute_regs.wb_ctrl;
+            memory_regs.pc_plus4 <= execute_regs.current_pc + 32'd4; // JAL/JALR need PC+4
+        end
     end
 end
 
