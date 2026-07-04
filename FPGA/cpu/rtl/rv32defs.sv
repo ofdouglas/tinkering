@@ -55,20 +55,27 @@ typedef enum logic [0:0] { // funct_3[2]
     SHIFT_RIGHT  = 1'b1
 } alu_shift_e;
 
+typedef enum logic [1:0] { // {funct_3[2], funct_3[0}
+    CMP_EQ       = 2'b00,
+    CMP_NE       = 2'b01,
+    CMP_LT       = 2'b10,
+    CMP_GE       = 2'b11
+} cmp_type_e;
+
 typedef enum logic [0:0] { // funct_3[1] 
     CMP_SIGNED   = 1'b0,
     CMP_UNSIGNED = 1'b1
 } cmp_sign_e;
 
 typedef enum logic [0:0] { // funct_7[5]
-   FUNCT_7_ADD  = 1'b0,
-   FUNCT_7_SUB  = 1'b1
-} funct_7_adder_e;
+   ADDER_CTRL_ADD  = 1'b0,
+   ADDER_CTRL_SUB  = 1'b1
+} adder_ctrl_e;
 
 typedef enum logic [0:0] { // funct_7[5]
-   FUNCT_7_SRL  = 1'b0,
-   FUNCT_7_SRA  = 1'b1
-} funct_7_shifter_e;
+   SHIFTER_CTRL_SRL  = 1'b0,
+   SHIFTER_CTRL_SRA  = 1'b1
+} shifter_ctrl_e;
 
 typedef enum logic [1:0] {
     ALU_MUX_LOGIC   = 2'b00,
@@ -87,11 +94,16 @@ typedef enum logic [2:0] {
     BRCH_BGEU     = 3'b111
 } branch_funct_3_e;
 
-typedef enum logic [2:0] {
-    MEM_BYTE     = 3'b000,
-    MEM_HALF     = 3'b001,
-    MEM_WORD     = 3'b010
-} mem_funct_3_e;
+typedef enum logic [1:0] {
+    MEM_BYTE     = 2'b00,
+    MEM_HALF     = 2'b01,
+    MEM_WORD     = 2'b10
+} mem_size_e;
+
+typedef enum logic [0:0] { // funct_3[2]
+    LOAD_SIGNED   = 1'b0,
+    LOAD_UNSIGNED = 1'b1
+} load_signed_e;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Control Path Structs
@@ -99,13 +111,16 @@ typedef enum logic [2:0] {
 
 // TODO: compute all ALU mux values in decode, rather than passing instruction types
 typedef struct packed {
-    logic        funct_7_bit5; // funct_7[5]
-    logic        is_unsigned;
-    alu_mux_e    alu_mux_ctrl;
+    adder_ctrl_e   adder_ctrl;
+    shifter_ctrl_e shifter_ctrl;
+    logic          is_unsigned;
+    logic          is_lui_instr;
+    alu_mux_e      alu_mux_ctrl;
 } AluControls;
 
 typedef struct packed {
     logic        is_jump_instr;
+    logic        is_jump_register_instr;
     logic        is_branch_instr;
 } JumpBranchControls;
 
@@ -126,8 +141,8 @@ typedef struct packed {
 
 typedef struct packed {
     logic              valid;
+    logic [31:0]       current_pc;
     logic [31:0]       fetch_pc;
-    logic [31:0]       pc_plus4;
     logic [31:0]       instruction;
     logic              unaligned_pc;
 } FetchStageRegs;
@@ -136,7 +151,7 @@ typedef struct packed {
     // Datapath
     logic [31:0]       left_operand;
     logic [31:0]       right_operand;
-    logic [31:0]       fetch_pc;
+    logic [31:0]       current_pc;
     logic [31:0]       branch_immediate;
     logic [31:0]       store_value;
 
@@ -155,7 +170,7 @@ typedef struct packed {
     // Datapath
     logic [31:0]       exec_result;
     logic [31:0]       store_value;
-    logic [31:0]       fetch_pc;
+    logic [31:0]       current_pc;
 
     // Control path
     logic              valid;
@@ -163,8 +178,6 @@ typedef struct packed {
     JumpBranchControls jump_branch_ctrl;
     MemoryControls     mem_ctrl;
     WritebackControls  wb_ctrl;
-    logic              branch_taken;
-    logic [31:0]       branch_pc;
 } ExecuteStageRegs;
 
 typedef struct packed {

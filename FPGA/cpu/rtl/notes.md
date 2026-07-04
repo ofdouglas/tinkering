@@ -7,7 +7,7 @@
 | LUI      |          |           |          |          | ?         |
 | AUIPC    |          |           | pc       | imm20    | PC Adder  |
 | JAL      |          |           | pc       | imm20    | PC+4      |
-| JALR     |          |           | pc       | imm12    | PC+4      |
+| JALR     |          |           | rs1      | imm12    | PC+4      |
 | BRANCH   | rs1      | rs2       | pc       | imm12    | -         |
 | LOAD     | rs1      | imm12     |          |          | mem       |
 | STORE    | rs1      | imm12     |          |          | -         |
