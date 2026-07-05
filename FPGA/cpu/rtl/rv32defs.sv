@@ -55,6 +55,19 @@ typedef enum logic [0:0] { // funct_3[2]
     SHIFT_RIGHT  = 1'b1
 } alu_shift_e;
 
+typedef enum logic [1:0] {
+    ALU_LEFT_SRC_PC        = 2'b00,
+    ALU_LEFT_SRC_RS1       = 2'b01,
+    ALU_LEFT_SRC_IMM       = 2'b10
+} alu_left_src_e;
+localparam alu_left_src_e ALU_LEFT_SRC_DONT_CARE = ALU_LEFT_SRC_PC;
+
+typedef enum logic [0:0] {
+    ALU_RIGHT_SRC_RS2       = 1'b0,
+    ALU_RIGHT_SRC_IMM       = 1'b1
+} alu_right_src_e;
+localparam alu_right_src_e ALU_RIGHT_SRC_DONT_CARE = ALU_RIGHT_SRC_RS2;
+
 typedef enum logic [1:0] { // {funct_3[2], funct_3[0}
     CMP_EQ       = 2'b00,
     CMP_NE       = 2'b01,
@@ -109,13 +122,19 @@ typedef enum logic [0:0] { // funct_3[2]
 // Control Path Structs
 ///////////////////////////////////////////////////////////////////////////////
 
+
 // TODO: compute all ALU mux values in decode, rather than passing instruction types
 typedef struct packed {
-    adder_ctrl_e   adder_ctrl;
-    shift_sign_e   shift_sign_ctrl;
-    logic          is_unsigned;
-    logic          is_lui_instr;
-    alu_mux_e      alu_mux_ctrl;
+    // Overall control
+    alu_left_src_e  alu_left_src;
+    alu_right_src_e alu_right_src;
+    alu_mux_e       alu_mux_ctrl;
+
+    // Special functions
+    adder_ctrl_e    adder_ctrl;
+    shift_sign_e    shift_sign_ctrl;
+    logic           is_unsigned;
+    logic           is_lui_instr;
 } AluControls;
 
 typedef struct packed {
@@ -135,25 +154,31 @@ typedef struct packed {
     logic [4:0] rd_reg_select;
 } WritebackControls;
 
+
+
 ///////////////////////////////////////////////////////////////////////////////
 // Pipeline Registers
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef struct packed {
-    logic              valid;
+    // Datapath
     logic [31:0]       current_pc;
     logic [31:0]       fetch_pc;
     logic [31:0]       instruction;
+
+    // Control path
+    logic              valid;
     logic              unaligned_pc;
 } FetchStageRegs;
 
 typedef struct packed {
     // Datapath
-    logic [31:0]       left_operand;
-    logic [31:0]       right_operand;
+    logic [31:0]       rs1_reg;
+    logic [31:0]       rs2_reg;
     logic [31:0]       current_pc;
-    logic [31:0]       branch_immediate;
-    logic [31:0]       store_value;
+    logic [31:0]       immediate;
+    logic  [4:0]       rs1_index;
+    logic  [4:0]       rs2_index;
 
     // Control path
     logic              valid;
@@ -169,8 +194,9 @@ typedef struct packed {
 typedef struct packed {
     // Datapath
     logic [31:0]       exec_result;
-    logic [31:0]       store_value;
+    logic [31:0]       rs2_reg;
     logic [31:0]       current_pc;
+    logic  [4:0]       rs2_index;
 
     // Control path
     logic              valid;
@@ -194,9 +220,7 @@ typedef struct packed {
     logic              valid;
     JumpBranchControls jump_branch_ctrl;
     WritebackControls  wb_ctrl;
-    logic              mem_stall;
     logic              mem_unaligned;
 } MemoryStageRegs;
-
 
 endpackage

@@ -3,12 +3,12 @@
 module cpu_tb;
 
     localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
-    localparam time TEST_TIMEOUT = 5us;
-    localparam int ROM_ADDR_BITS = 8;
+    localparam int ROM_ADDR_BITS = 10;  // 4 KiB instruction ROM, matches linker.ld
     localparam int ROM_WORDS = 2 ** ROM_ADDR_BITS;
-    localparam int DATA_ADDR_BITS = 6;
-    localparam int DATA_WORDS = 2 ** DATA_ADDR_BITS;
+    localparam int DATA_ADDR_BITS = 10; // 4 KiB data SRAM, matches cpu_config_pkg
+    localparam int SRAM_WORDS = 2 ** DATA_ADDR_BITS;
     localparam int NUM_REGS = 32;
+    localparam logic [3:0] REGION_RAM = 4'h1;
     localparam logic [31:0] NOP_INSTRUCTION = 32'h0000_0013;
 
     logic clk;
@@ -29,25 +29,45 @@ module cpu_tb;
 
     logic [31:0] instruction_rom [0:ROM_WORDS-1];
     logic [31:0] expected_registers [0:NUM_REGS-1];
+    logic [31:0] expected_sram [0:SRAM_WORDS-1];
+    bit sram_expected_loaded = 1'b0;
+    bit skip_register_check = 1'b0;
+    int unsigned sram_check_words = 0;
+    int unsigned mem_latency = 1;
+    int unsigned run_cycles = 20000;
     logic [ROM_ADDR_BITS-1:0] rom_word_addr;
     logic fetch_in_range;
-    logic [31:0] data_ram [0:DATA_WORDS-1];
-    logic [DATA_ADDR_BITS-1:0] data_word_addr;
     logic data_in_range;
-    logic data_write;
+
+    bus_slave_interface #(.ADDR_MSB(DATA_ADDR_BITS+1)) sram_bus();
+    slow_memory_adapter #(.ADDR_MSB(DATA_ADDR_BITS+1)) mem_adapter (
+        .clk         (clk),
+        .rst_n       (rst_n),
+        .latency     (mem_latency),
+        .cpu_valid   (valid && data_in_range),
+        .cpu_wr_strobe (wr_strobe),
+        .cpu_wr_data (wr_data),
+        .cpu_addr    (addr[DATA_ADDR_BITS+1:2]),
+        .cpu_rd_valid (rd_valid),
+        .cpu_rd_data (rd_data),
+        .cpu_wr_ack  (wr_ack),
+        .bus         (sram_bus)
+    );
+    assign sram_bus.clk = clk;
+    assign sram_bus.rst_n = rst_n;
+    block_sram #(.WORD_ADDR_BITS(DATA_ADDR_BITS)) data_sram (
+        .bus(sram_bus.slave)
+    );
 
     assign rom_word_addr = fetch_addr[ROM_ADDR_BITS+1:2];
     assign fetch_in_range = (fetch_addr[31:ROM_ADDR_BITS+2] == '0);
     assign instruction_fetch = fetch_in_range ? instruction_rom[rom_word_addr] : NOP_INSTRUCTION;
     assign fetch_valid = rst_n && fetch_in_range;
 
-    assign data_word_addr = addr[DATA_ADDR_BITS+1:2];
-    assign data_in_range = (addr[31:DATA_ADDR_BITS+2] == '0);
-    assign data_write = valid && (wr_strobe != 4'b0000);
-    assign rd_valid = valid && (wr_strobe == 4'b0000) && data_in_range;
-    assign rd_data = data_in_range ? data_ram[data_word_addr] : '0;
-    assign wr_ack = data_write && data_in_range;
-    assign error = valid && !data_in_range;
+    assign data_in_range = (addr[31:20] == '0) &&
+                             (addr[19:16] == REGION_RAM) &&
+                             (addr[15:DATA_ADDR_BITS+2] == '0);
+    assign error = (valid && !data_in_range);
 
     rv32cpu dut (
         .clk         (clk),
@@ -89,25 +109,32 @@ module cpu_tb;
         end
     endtask
 
+    task automatic try_load_sram_expected(input string expected_path, output bit loaded);
+        int expected_file;
+
+        expected_file = $fopen(expected_path, "r");
+        loaded = (expected_file != 0);
+        if (loaded) begin
+            $fclose(expected_file);
+            $readmemh(expected_path, expected_sram);
+            $display("cpu_tb: loaded CPU expected SRAM from %s", expected_path);
+        end
+    endtask
+
+    function automatic string replace_suffix(input string path, input string old_suffix, input string new_suffix);
+        int suffix_pos;
+
+        suffix_pos = path.len() - old_suffix.len();
+        if (suffix_pos >= 0 && path.substr(suffix_pos, path.len() - 1) == old_suffix) begin
+            replace_suffix = {path.substr(0, suffix_pos - 1), new_suffix};
+        end else begin
+            replace_suffix = path;
+        end
+    endfunction
+
     initial begin
         clk = 1'b0;
         forever #(CLK_PERIOD / 2) clk = ~clk;
-    end
-
-    initial begin
-        for (int i = 0; i < DATA_WORDS; i++) begin
-            data_ram[i] = '0;
-        end
-    end
-
-    always_ff @(posedge clk) begin
-        if (rst_n && data_write && data_in_range) begin
-            for (int i = 0; i < 4; i++) begin
-                if (wr_strobe[i]) begin
-                    data_ram[data_word_addr][8*i +: 8] <= wr_data[8*i +: 8];
-                end
-            end
-        end
     end
 
     initial begin
@@ -121,6 +148,9 @@ module cpu_tb;
         end
         for (int i = 0; i < NUM_REGS; i++) begin
             expected_registers[i] = 'x;
+        end
+        for (int i = 0; i < SRAM_WORDS; i++) begin
+            expected_sram[i] = 'x;
         end
 
         rom_loaded = 1'b0;
@@ -168,6 +198,54 @@ module cpu_tb;
         if (!expected_loaded) begin
             $fatal(1, "cpu_tb: could not load cputest.expected; run make cputest in firmware/");
         end
+
+        if ($test$plusargs("CPUTEST_SKIP_REGS")) begin
+            skip_register_check = 1'b1;
+        end
+
+        sram_check_words = 0;
+        if (!$value$plusargs("CPUTEST_SRAM_WORDS=%d", sram_check_words)) begin
+            sram_check_words = SRAM_WORDS;
+        end
+
+        mem_latency = 1;
+        if ($value$plusargs("CPUTEST_MEM_LATENCY=%d", mem_latency)) begin
+            if (mem_latency < 1) begin
+                $fatal(1, "cpu_tb: CPUTEST_MEM_LATENCY must be >= 1 (got %0d)", mem_latency);
+            end
+            $display("cpu_tb: slow memory mode enabled, latency=%0d cycle(s)", mem_latency);
+        end
+
+        run_cycles = 20000;
+        if (!$value$plusargs("CPUTEST_CYCLES=%d", run_cycles)) begin
+            if (mem_latency > 1) begin
+                run_cycles = 20000 * mem_latency;
+            end
+        end
+        if (mem_latency > 1 || $test$plusargs("CPUTEST_CYCLES")) begin
+            $display("cpu_tb: running for %0d clock cycles", run_cycles);
+        end
+
+        sram_expected_loaded = 1'b0;
+        if ($value$plusargs("CPUTEST_SRAM_EXPECTED=%s", expected_path)) begin
+            try_load_sram_expected(expected_path, sram_expected_loaded);
+        end else if ($value$plusargs("CPUTEST_EXPECTED=%s", expected_path)) begin
+            try_load_sram_expected(replace_suffix(expected_path, ".expected", ".sram.expected"), sram_expected_loaded);
+        end else begin
+            try_load_sram_expected("cputest.sram.expected", sram_expected_loaded);
+            if (!sram_expected_loaded) begin
+                try_load_sram_expected("mem/cputest.sram.expected", sram_expected_loaded);
+            end
+            if (!sram_expected_loaded) begin
+                try_load_sram_expected("../mem/cputest.sram.expected", sram_expected_loaded);
+            end
+            if (!sram_expected_loaded) begin
+                try_load_sram_expected("../../../../../cpu/mem/cputest.sram.expected", sram_expected_loaded);
+            end
+            if (!sram_expected_loaded) begin
+                try_load_sram_expected("../../../../../../cpu/mem/cputest.sram.expected", sram_expected_loaded);
+            end
+        end
     end
 
     task automatic fail(input string message);
@@ -179,6 +257,10 @@ module cpu_tb;
     task automatic check_register(input int unsigned index, input logic [31:0] expected);
         logic [31:0] actual;
 
+        if ($isunknown(expected)) begin
+            return;
+        end
+
         actual = dut.x_register_file[index];
         if (actual !== expected) begin
             fail($sformatf("x%0d mismatch: got 0x%08x expected 0x%08x", index, actual, expected));
@@ -186,8 +268,41 @@ module cpu_tb;
     endtask
 
     task automatic check_cputest_registers;
+        if (skip_register_check) begin
+            return;
+        end
         for (int i = 1; i < NUM_REGS; i++) begin
             check_register(i, expected_registers[i]);
+        end
+    endtask
+
+    task automatic check_sram_word(input int unsigned index, input logic [31:0] expected);
+        logic [31:0] actual;
+
+        if ($isunknown(expected)) begin
+            return;
+        end
+
+        actual = data_sram.sram_word_array[index];
+        if (actual !== expected) begin
+            fail($sformatf("SRAM word %0d mismatch: got 0x%08x expected 0x%08x", index, actual, expected));
+        end
+    endtask
+
+    task automatic check_cputest_sram;
+        int unsigned limit;
+
+        if (!sram_expected_loaded) begin
+            return;
+        end
+
+        limit = (sram_check_words == 0) ? SRAM_WORDS : sram_check_words;
+        if (limit > SRAM_WORDS) begin
+            limit = SRAM_WORDS;
+        end
+
+        for (int i = 0; i < limit; i++) begin
+            check_sram_word(i, expected_sram[i]);
         end
     endtask
 
@@ -198,21 +313,31 @@ module cpu_tb;
     end
 
     initial begin
+        #0; // let plusarg/config initial block run first
         rst_n = 1'b0;
         repeat (4) @(posedge clk);
         @(negedge clk);
         rst_n = 1'b1;
 
-        repeat (450) @(posedge clk);
+        repeat (run_cycles) @(posedge clk);
         check_cputest_registers();
+        check_cputest_sram();
         if (!test_failed) begin
-            $display("[%0t] PASS: CPU test firmware register results verified", $time);
+            if (!skip_register_check) begin
+                $display("[%0t] PASS: CPU test firmware register results verified", $time);
+            end else begin
+                $display("[%0t] PASS: CPU test firmware register check skipped", $time);
+            end
+            if (sram_expected_loaded) begin
+                $display("[%0t] PASS: CPU test firmware SRAM contents verified", $time);
+            end
         end
         $finish;
     end
 
     initial begin
-        #TEST_TIMEOUT;
+        #0;
+        #(CLK_PERIOD * int'(run_cycles + 50000));
         fail("timed out waiting for CPU test firmware to complete");
     end
 

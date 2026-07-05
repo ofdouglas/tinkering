@@ -11,6 +11,11 @@ _start:
     sb    x24, 12(x1)
     addi  x27, x0,  -128
     sb    x27, 13(x1)
+    lui   x2,  0x0000F
+    addi  x2,  x2,  0x321    /* 0xf321 for lhu seed @+18 */
+    sh    x2,  18(x1)
+    lui   x2,  0x00008       /* 0x8000 signed halfword seed @+16 */
+    sh    x2,  16(x1)
     nop
     nop
     nop
@@ -61,11 +66,35 @@ jr_tgt:
     lw    x30, 0(x1)
     xori  x31, x30, 0xFF     /* verify x31 = 0xdeadce10 */
 
+    /* Case 9: lh -> addi (sign-extended halfword) */
+    lh    x2,  16(x1)         /* verify x2  = 0xffff8000 */
+    addi  x3,  x2,  1         /* verify x3  = 0xffff8001 */
+
+    /* Case 10: lhu -> addi */
+    lhu   x4,  18(x1)         /* verify x4  = 0x0000f321 */
+    addi  x5,  x4,  1         /* verify x5  = 0x0000f322 */
+
+    /* Case 11: lw -> sh (load-use on store rs2) */
+    lw    x6,  0(x1)          /* verify x6  = 0xdeadceef */
+    sh    x6,  20(x1)
+
+    /* Case 12: back-to-back lw to same rd, then immediate use */
+    lw    x7,  0(x1)
+    lw    x7,  4(x1)          /* verify x7  = 0xdeadceef (word @+4) */
+    addi  x8,  x7,  1         /* verify x8  = 0xdeadcef0 */
+
+    /* Case 13: back-to-back lbu to same rd, then immediate use */
+    lbu   x9,  12(x1)
+    lbu   x9,  13(x1)         /* verify x9  = 0x00000080 (byte @+13) */
+    addi  x2,  x9,  1         /* verify x2  = 0x00000081; overwrites case 9 x2 */
+
     /* Final SRAM layout (see load_use.sram.expected):
      *   word 0 @ 0x10000 = 0xdeadceef
      *   word 1 @ 0x10004 = 0xdeadceef
-     *   word 2 @ 0x10008 = 0x0000007c (jalr target)
+     *   word 2 @ 0x10008 = 0x00000090 (jalr target)
      *   word 3 @ 0x1000c = 0x00008080
+     *   word 4 @ 0x10010 = 0xf3218000 (halfword seeds @+16, @+18)
+     *   word 5 @ 0x10014 = 0x0000ceef (lw -> sh @+20)
      */
 
     nop

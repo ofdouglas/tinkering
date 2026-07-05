@@ -34,9 +34,8 @@ ExecuteCombinatorial exec_comb;   // Pipeline Stage 3 result
 ExecuteStageRegs execute_regs;    // 
 MemoryStageRegs memory_regs;      // Pipeline Stage 4 result
 
-logic stall;
-// assign stall = memory_regs.mem_stall;
-assign stall = 1'b0;
+logic mem_stall;
+logic stall_decode;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 1: Instruction Fetch
@@ -54,7 +53,7 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         fetch_regs <= '0;
-    end else if (!stall) begin
+    end else if (!stall_decode && !mem_stall) begin
         fetch_regs.unaligned_pc <= next_pc[1:0] != '0;
 
         // Flush on branch miss, by making it a NOP
@@ -74,17 +73,19 @@ end
 // Instruction fields
 logic [31:0] instr;
 logic [6:0] opcode;
+logic [4:0] rs1_reg_select, rs2_reg_select;
 logic [6:0] funct_7;
 logic [2:0] funct_3;
 
 assign instr   = fetch_regs.instruction;
 assign opcode  = fetch_regs.instruction[6:0];
+assign rs1_reg_select = instr[19:15];
+assign rs2_reg_select = instr[24:20];
 assign funct_7 = fetch_regs.instruction[31:25];
 assign funct_3 = fetch_regs.instruction[14:12];
 
 // Datapath results
-logic [31:0] rs1_reg_mux, rs2_reg_mux, immediate_bits, left_op, right_op, store_value;
-logic [31:0] alu_result;
+logic [31:0] rs1_reg_mux, rs2_reg_mux, immediate_bits;
 
 // Control signals
 AluControls        alu_ctrl;
@@ -93,48 +94,39 @@ MemoryControls     mem_ctrl;
 WritebackControls  wb_ctrl;
 logic              invalid_opcode;
 
-// Read register file, with forwarding logic
+// Get instruction values
 always_comb begin
-    logic [4:0] rs1_reg_select, rs2_reg_select, exec_rd_reg_select, mem_rd_reg_select, wb_rd_reg_select;
-    logic exec_valid, mem_valid, wb_valid;
-
-    rs1_reg_select = instr[19:15];
-    rs2_reg_select = instr[24:20];
-    exec_rd_reg_select = decode_regs.wb_ctrl.rd_reg_select;
-    mem_rd_reg_select = memory_regs.wb_ctrl.rd_reg_select;
-    wb_rd_reg_select = execute_regs.wb_ctrl.rd_reg_select;
-    exec_valid = decode_regs.valid && decode_regs.wb_ctrl.writeback_en &&
-        !decode_regs.mem_ctrl.memory_request && !decode_regs.jump_branch_ctrl.is_jump_instr;
-    mem_valid = memory_regs.valid && memory_regs.wb_ctrl.writeback_en;
-    wb_valid = execute_regs.valid && execute_regs.wb_ctrl.writeback_en;
+    // Read register file
+    logic mem_wb_hazard;
+    logic load_use_hazard;
+    mem_wb_hazard = memory_regs.valid && memory_regs.wb_ctrl.writeback_en && memory_regs.wb_ctrl.rd_reg_select != '0;
 
     if (rs1_reg_select == '0) begin
         rs1_reg_mux = '0;
-    end else if (exec_valid && (exec_rd_reg_select == rs1_reg_select)) begin
-        rs1_reg_mux = alu_result;
-    end else if (mem_valid && (mem_rd_reg_select == rs1_reg_select)) begin
+    end else if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == rs1_reg_select) begin
         rs1_reg_mux = memory_regs.writeback_data;
-    end else if (wb_valid && (wb_rd_reg_select == rs1_reg_select)) begin
-        rs1_reg_mux = execute_regs.exec_result;
     end else begin
         rs1_reg_mux = x_register_file[rs1_reg_select];
     end
 
     if (rs2_reg_select == '0) begin
         rs2_reg_mux = '0;
-    end else if (exec_valid && (exec_rd_reg_select == rs2_reg_select)) begin
-        rs2_reg_mux = alu_result;
-    end else if (mem_valid && (mem_rd_reg_select == rs2_reg_select)) begin
+    end else if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == rs2_reg_select) begin
         rs2_reg_mux = memory_regs.writeback_data;
-    end else if (wb_valid && (wb_rd_reg_select == rs2_reg_select)) begin
-        rs2_reg_mux = execute_regs.exec_result;
     end else begin
         rs2_reg_mux = x_register_file[rs2_reg_select];
     end
-end
 
-// Assemble immediate value
-always_comb begin
+    if (decode_regs.valid && decode_regs.mem_ctrl.memory_request) begin
+        load_use_hazard = !decode_regs.mem_ctrl.memory_write &&
+            (decode_regs.wb_ctrl.rd_reg_select == rs1_reg_select || decode_regs.wb_ctrl.rd_reg_select == rs2_reg_select);
+    end else begin
+        load_use_hazard = 1'b0;
+    end
+
+    stall_decode = load_use_hazard;
+
+    // Assemble immediate value
     case (opcode_e'(opcode))
         OPCODE_LUI:      immediate_bits = {instr[31:12], 12'h000};
         OPCODE_AUIPC:    immediate_bits = {instr[31:12], 12'h000};
@@ -154,73 +146,73 @@ always_comb begin
     invalid_opcode    = 1'b0;
     alu_ctrl          = '0;
     alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
+    alu_ctrl.alu_left_src = ALU_LEFT_SRC_DONT_CARE;
+    alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
     jump_branch_ctrl  = '0;
     mem_ctrl          = '0;
     wb_ctrl           = '0;
     wb_ctrl.rd_reg_select = instr[11:7];
-    left_op           = 'x;
-    right_op          = 'x;
 
     // Decode Opcode and set controls/operands
     case (opcode_e'(opcode))
         OPCODE_LUI: begin
-            left_op  = 'x;
-            right_op = immediate_bits;
-            wb_ctrl.writeback_en = 1'b1;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_IMM;
             alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;
             alu_ctrl.is_lui_instr = 1'b1;
+            wb_ctrl.writeback_en = 1'b1;
         end
         OPCODE_AUIPC: begin
-            left_op  = fetch_regs.fetch_pc;
-            right_op = immediate_bits;
-            wb_ctrl.writeback_en = 1'b1;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_PC;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_IMM;
             alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
+            wb_ctrl.writeback_en = 1'b1;
         end
         OPCODE_JAL: begin
-            left_op  = 'x;
-            right_op = 'x;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
+            alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
             jump_branch_ctrl.is_jump_instr = 1'b1;
             wb_ctrl.writeback_en = 1'b1;
-            alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
         end
         OPCODE_JALR: begin
             // JALR uses the PC Adder; re-use left op to save pipeline space
-            left_op  = rs1_reg_mux;
-            right_op = 'x;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_RS1;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
+            alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
             jump_branch_ctrl.is_jump_instr = 1'b1;
             jump_branch_ctrl.is_jump_register_instr = 1'b1;
             wb_ctrl.writeback_en = 1'b1;
-            alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
         end
         OPCODE_BRANCH: begin
-            left_op  = rs1_reg_mux;
-            right_op = rs2_reg_mux;
-            jump_branch_ctrl.is_branch_instr = 1'b1;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_RS1;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_RS2;
             alu_ctrl.alu_mux_ctrl = ALU_MUX_COMPARE;
             alu_ctrl.is_unsigned = (branch_funct_3_e'(funct_3) == BRCH_BLTU) || 
                                    (branch_funct_3_e'(funct_3) == BRCH_BGEU);
             alu_ctrl.adder_ctrl = ADDER_CTRL_SUB;
+            jump_branch_ctrl.is_branch_instr = 1'b1;
         end
         OPCODE_LOAD: begin
-            left_op  = rs1_reg_mux;
-            right_op = immediate_bits;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_RS1;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_IMM;
+            alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
             wb_ctrl.writeback_en = 1'b1;
             mem_ctrl.memory_request = 1'b1;
-            alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
         end
         OPCODE_STORE: begin
-            left_op  = rs1_reg_mux;
-            right_op = immediate_bits;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_RS1;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_IMM;
+            alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
             mem_ctrl.memory_request = 1'b1;
             mem_ctrl.memory_write = 1'b1;
-            alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
         end
         OPCODE_IMM_ALU: begin
-            left_op  = rs1_reg_mux;
-            right_op = immediate_bits;
-            wb_ctrl.writeback_en  = 1'b1;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_RS1;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_IMM;
             alu_ctrl.is_unsigned  = alu_immediate_e'(funct_3) == ALU_SLTIU;
             alu_ctrl.shift_sign_ctrl = funct_7[5] ? SHIFTER_CTRL_SRA : SHIFTER_CTRL_SRL;
+            wb_ctrl.writeback_en  = 1'b1;
 
             case (alu_immediate_e'(funct_3))
                 ALU_ADDI:  alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
@@ -235,13 +227,13 @@ always_comb begin
             endcase
         end
         OPCODE_REG_ALU: begin
-            left_op  = rs1_reg_mux;
-            right_op = rs2_reg_mux;
-            wb_ctrl.writeback_en = 1'b1;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_RS1;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_RS2;
             alu_ctrl.is_unsigned = (alu_register_e'(funct_3) == ALU_SLTU);
             alu_ctrl.adder_ctrl = ((alu_register_e'(funct_3) == ALU_ADD) && (funct_7[5] == 1'b0))
                                    ? ADDER_CTRL_ADD : ADDER_CTRL_SUB;
             alu_ctrl.shift_sign_ctrl = funct_7[5] ? SHIFTER_CTRL_SRA : SHIFTER_CTRL_SRL;
+            wb_ctrl.writeback_en = 1'b1;
 
             case (alu_register_e'(funct_3))
                 ALU_ADD:  alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
@@ -256,17 +248,17 @@ always_comb begin
             endcase
         end
         OPCODE_FENCE: begin
-            left_op  = 'x; // TODO
-            right_op = 'x;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
         end
         OPCODE_SYSTEM: begin
-            left_op  = 'x; // TODO
-            right_op = 'x;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
         end
         default: begin
             invalid_opcode = 1'b1;
-            left_op  = 'x;
-            right_op = 'x;
+            alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
+            alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
         end
     endcase
 end
@@ -277,38 +269,91 @@ always_ff @(posedge clk) begin
 
     if (!rst_n) begin
         decode_regs <= '0;
-    end else if (!stall) begin
-        // Data path
-        decode_regs.left_operand                 <= left_op;
-        decode_regs.right_operand                <= right_op;
-        decode_regs.current_pc                   <= fetch_regs.fetch_pc;
-        decode_regs.branch_immediate             <= immediate_bits;
-        decode_regs.store_value                  <= rs2_reg_mux;
+    end else if (!mem_stall) begin
+        if (stall_decode) begin
+            decode_regs <= '0;
+        end else begin
+            // Data path
+            decode_regs.rs1_reg                <= rs1_reg_mux;
+            decode_regs.rs2_reg                <= rs2_reg_mux;
+            decode_regs.current_pc             <= fetch_regs.fetch_pc;
+            decode_regs.immediate              <= immediate_bits;
+            decode_regs.rs1_index              <= rs1_reg_select;
+            decode_regs.rs2_index              <= rs2_reg_select;
 
-        // Control path
-        decode_regs.valid                        <= fetch_regs.valid && !flush_instruction;
-        decode_regs.funct_3                      <= funct_3;
-        decode_regs.alu_ctrl                     <= alu_ctrl;
-        decode_regs.jump_branch_ctrl             <= jump_branch_ctrl;
-        decode_regs.mem_ctrl                     <= mem_ctrl;
-        decode_regs.wb_ctrl                      <= wb_ctrl;
-        decode_regs.invalid_opcode               <= invalid_opcode;
-    end else begin
-        decode_regs <= decode_regs;
-    end
+            // Control path
+            decode_regs.valid                  <= fetch_regs.valid && !flush_instruction;
+            decode_regs.funct_3                <= funct_3;
+            decode_regs.alu_ctrl               <= alu_ctrl;
+            decode_regs.jump_branch_ctrl       <= jump_branch_ctrl;
+            decode_regs.mem_ctrl               <= mem_ctrl;
+            decode_regs.wb_ctrl                <= wb_ctrl;
+            decode_regs.invalid_opcode         <= invalid_opcode;
+        end
+    end 
 end
 
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 3: Execute
 ///////////////////////////////////////////////////////////////////////////////
-logic [31:0] alu_left, alu_right;
-logic [31:0] logic_result, shifter_result, adder_sum;
+logic [31:0] alu_left, alu_right, rs2_reg_for_store;
+logic [31:0] logic_result, shifter_result, adder_sum, alu_result;
 logic negative_flag;
 logic compare_result;
 
-assign alu_left = decode_regs.left_operand;
-assign alu_right = decode_regs.right_operand;
+// Operand muxing
+always_comb begin
+    logic ex_regs_wb, mem_regs_wb;
+    ex_regs_wb  = execute_regs.valid && execute_regs.wb_ctrl.writeback_en && execute_regs.wb_ctrl.rd_reg_select != '0;
+    mem_regs_wb = memory_regs.valid && memory_regs.wb_ctrl.writeback_en && memory_regs.wb_ctrl.rd_reg_select != '0;
+
+    // ALU Left Operand
+    case (decode_regs.alu_ctrl.alu_left_src)
+        ALU_LEFT_SRC_RS1: begin
+            if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs1_index)) begin
+                alu_left = execute_regs.exec_result;
+            end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs1_index)) begin
+                alu_left = memory_regs.writeback_data;
+            end else begin
+                alu_left = decode_regs.rs1_reg;
+            end
+        end
+        ALU_LEFT_SRC_PC:  begin
+            alu_left = decode_regs.current_pc;
+        end
+        ALU_LEFT_SRC_IMM: begin
+            alu_left = decode_regs.immediate;
+        end
+        default: alu_left = 'x;
+    endcase
+
+    // ALU Right Operand
+    case (decode_regs.alu_ctrl.alu_right_src)
+        ALU_RIGHT_SRC_RS2: begin
+            if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
+                alu_right = execute_regs.exec_result;
+            end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
+                alu_right = memory_regs.writeback_data;
+            end else begin
+                alu_right = decode_regs.rs2_reg;
+            end
+        end
+        ALU_RIGHT_SRC_IMM: begin
+            alu_right = decode_regs.immediate;
+        end
+        default: alu_right = 'x;
+    endcase
+
+    // rs2 for store instructions
+    if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
+        rs2_reg_for_store = execute_regs.exec_result;
+    end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
+        rs2_reg_for_store = memory_regs.writeback_data;
+    end else begin
+        rs2_reg_for_store = decode_regs.rs2_reg;
+    end
+end
 
 // Shifter and Logic units
 always_comb begin
@@ -319,10 +364,10 @@ always_comb begin
     logic_ctrl =  decode_regs.alu_ctrl.is_lui_instr ? LOGIC_LUI : alu_logic_e'(decode_regs.funct_3[1:0]);
 
     case (alu_logic_e'(logic_ctrl))
-        LOGIC_XOR: logic_result = decode_regs.left_operand ^ decode_regs.right_operand;
-        LOGIC_LUI: logic_result = decode_regs.right_operand;
-        LOGIC_OR:  logic_result = decode_regs.left_operand | decode_regs.right_operand;
-        LOGIC_AND: logic_result = decode_regs.left_operand & decode_regs.right_operand;
+        LOGIC_XOR: logic_result = alu_left ^ alu_right;
+        LOGIC_LUI: logic_result = decode_regs.immediate;
+        LOGIC_OR:  logic_result = alu_left | alu_right;
+        LOGIC_AND: logic_result = alu_left & alu_right;
         default:   logic_result = 'x;
     endcase
 
@@ -388,7 +433,7 @@ always_comb begin
 
     // JALR uses rs1 + immediate; all other branching uses PC + immediate
     base_address = decode_regs.jump_branch_ctrl.is_jump_register_instr ? alu_left[31:0] : decode_regs.current_pc[31:0];
-    address_sum = base_address + decode_regs.branch_immediate[31:0];
+    address_sum = base_address + decode_regs.immediate[31:0];
     exec_comb.branch_pc = {address_sum[31:1], 1'b0};
 
     branch_taken = decode_regs.jump_branch_ctrl.is_branch_instr && compare_result;
@@ -410,18 +455,18 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         execute_regs <= '0;
-    end else if (!stall && decode_regs.valid) begin
-        execute_regs.exec_result <= alu_result;
-
+    end else if (!mem_stall) begin
+        execute_regs.exec_result      <= alu_result;
         // Forward unmodified rs2 for store instructions, unmodified PC for JAL/JALR
-        execute_regs.store_value <= decode_regs.store_value;
-        execute_regs.current_pc <= decode_regs.current_pc;
+        execute_regs.rs2_reg          <= rs2_reg_for_store;
+        execute_regs.current_pc       <= decode_regs.current_pc;
+        execute_regs.rs2_index        <= decode_regs.rs2_index;
 
-        execute_regs.valid <= 1'b1;
-        execute_regs.funct_3  <= decode_regs.funct_3;
+        execute_regs.valid            <= decode_regs.valid;
+        execute_regs.funct_3          <= decode_regs.funct_3;
         execute_regs.jump_branch_ctrl <= decode_regs.jump_branch_ctrl;
-        execute_regs.mem_ctrl <= decode_regs.mem_ctrl;
-        execute_regs.wb_ctrl  <= decode_regs.wb_ctrl;
+        execute_regs.mem_ctrl         <= decode_regs.mem_ctrl;
+        execute_regs.wb_ctrl          <= decode_regs.wb_ctrl;
     end else begin
         execute_regs <= execute_regs;
     end
@@ -433,7 +478,6 @@ end
 ///////////////////////////////////////////////////////////////////////////////
 logic [3:0] byte_lanes;
 logic [31:0] shifted_wr_data, shifted_rd_data;
-logic mem_stall;
 
 assign valid = execute_regs.valid && execute_regs.mem_ctrl.memory_request;
 assign wr_data = shifted_wr_data;
@@ -441,30 +485,39 @@ assign addr = execute_regs.exec_result[31:2];
 assign wr_strobe = (execute_regs.valid && execute_regs.mem_ctrl.memory_write) ? byte_lanes : '0;
 
 always_comb begin
+    logic [31:0] rs2_reg_mux;
+    logic  mem_wb_hazard;
     mem_size_e mem_size;
     logic      zero_extend;
     logic      is_load;
     logic      is_store;
 
+    mem_wb_hazard = memory_regs.valid && memory_regs.wb_ctrl.writeback_en && memory_regs.wb_ctrl.rd_reg_select != '0;
+    if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == execute_regs.rs2_index) begin
+        rs2_reg_mux = memory_regs.writeback_data;
+    end else begin
+        rs2_reg_mux = execute_regs.rs2_reg;
+    end
+
     mem_size = mem_size_e'(execute_regs.funct_3[1:0]);
     zero_extend = (execute_regs.funct_3[2] == LOAD_UNSIGNED);
-    is_load = execute_regs.mem_ctrl.memory_request;
-    is_store = execute_regs.mem_ctrl.memory_write;
+    is_store = execute_regs.valid && execute_regs.mem_ctrl.memory_write;
+    is_load = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !is_store;
 
     mem_stall = (is_store && !wr_ack) || (is_load && !rd_valid);
 
     case (mem_size)
         MEM_BYTE : begin
             byte_lanes = 1'b0001 << execute_regs.exec_result[1:0];
-            shifted_wr_data = execute_regs.store_value << (execute_regs.exec_result[1:0] * 8);
+            shifted_wr_data = rs2_reg_mux << (execute_regs.exec_result[1:0] * 8);
         end
         MEM_HALF : begin
             byte_lanes = (execute_regs.exec_result[1]) ? 4'b1100 : 4'b0011;
-            shifted_wr_data = execute_regs.store_value << (execute_regs.exec_result[1] ? 16 : 0);
+            shifted_wr_data = rs2_reg_mux << (execute_regs.exec_result[1] ? 16 : 0);
         end
         MEM_WORD : begin
             byte_lanes = 4'b1111;
-            shifted_wr_data = execute_regs.store_value;
+            shifted_wr_data = rs2_reg_mux;
         end
         default: begin
             byte_lanes = 4'b0000;
@@ -488,18 +541,12 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         memory_regs <= '0;
-    end else begin  
-        // TODO: if other stall sources are added, this block ignores them!
-        // TOOD: assumes 1-cycle access, never stalls! Check rd_valid and wr_ack!
-        memory_regs.mem_stall <= mem_stall;
-
-        if (!mem_stall) begin
-            memory_regs.valid <= execute_regs.valid;
-            memory_regs.writeback_data <= execute_regs.mem_ctrl.memory_request ? shifted_rd_data : execute_regs.exec_result;
-            memory_regs.jump_branch_ctrl <= execute_regs.jump_branch_ctrl;
-            memory_regs.wb_ctrl <= execute_regs.wb_ctrl;
-            memory_regs.pc_plus4 <= execute_regs.current_pc + 32'd4; // JAL/JALR need PC+4
-        end
+    end else if (!mem_stall) begin
+        memory_regs.valid <= execute_regs.valid;
+        memory_regs.writeback_data <= (execute_regs.mem_ctrl.memory_request && !execute_regs.mem_ctrl.memory_write) ? shifted_rd_data : execute_regs.exec_result;
+        memory_regs.jump_branch_ctrl <= execute_regs.jump_branch_ctrl;
+        memory_regs.wb_ctrl <= execute_regs.wb_ctrl;
+        memory_regs.pc_plus4 <= execute_regs.current_pc + 32'd4; // JAL/JALR need PC+4
     end
 end
 
@@ -507,16 +554,15 @@ end
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 5: Writeback
 ///////////////////////////////////////////////////////////////////////////////
-always_ff @(posedge clk) begin
-    logic [31:0] data;
-    data = memory_regs.jump_branch_ctrl.is_jump_instr ? memory_regs.pc_plus4 : memory_regs.writeback_data;
+logic [31:0] data;
+assign data = memory_regs.jump_branch_ctrl.is_jump_instr ? memory_regs.pc_plus4 : memory_regs.writeback_data;
 
-    if (!stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
+always_ff @(posedge clk) begin
+    if (!mem_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
         if (memory_regs.wb_ctrl.rd_reg_select != '0) begin
             x_register_file[memory_regs.wb_ctrl.rd_reg_select] <= data;
         end
     end
 end
-
 
 endmodule

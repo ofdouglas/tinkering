@@ -35,7 +35,7 @@ _start:
     srli  x28, x2,  31       /* verify x28 = 0x00000001 */
     srai  x29, x2,  31       /* verify x29 = 0xffffffff */
 
-    slti  x30, x2,  -1       /* verify x30 = 0x00000000 */
+    slti  x30, x2,  -1       /* verify x30 = 0x00000001 */
     sltiu x31, x3,  -1       /* verify x31 = 0x00000000 */
 
     nop

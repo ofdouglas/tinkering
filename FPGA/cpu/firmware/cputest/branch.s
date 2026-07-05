@@ -59,6 +59,7 @@ bgeu_taken_ok:
 6:
     addi  x17, x0,  3         /* verify x17 = 3 */
     addi  x18, x0,  0         /* verify x18 = 0 */
+    addi  x19, x0,  0         /* loop accumulator; do not rely on reset value */
 
 branch_loop:
     addi  x18, x18, 1         /* verify x18 = 3 */
