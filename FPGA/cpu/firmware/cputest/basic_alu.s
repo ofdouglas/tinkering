@@ -1,7 +1,9 @@
 .section .text
 .global _start
 _start:
+                             /* verify x0  = 0x00000000 */
     addi  x1,  x0, 0x03F     /* verify x1  = 0x0000003f */
+    addi  x0,  x0, 0x3FF
     addi  x2,  x0, -64       /* verify x2  = 0xffffffc0 */
     lui   x3,  0x12345       /* verify x3  = 0x12345000 */
     lui   x4,  0xEDCBA       /* verify x4  = 0xedcba000 */

@@ -61,3 +61,83 @@
 | FENCE         | BREAK       | ?          | ?         | -           |
 | SYSTEM        | ECALL       | ?          | ?         | -           |
 | SYSTEM        | EBREAK      | ?          | ?         | -           |
+
+
+## Privileged ISA Notes
+
+### CSRs
+Address format
+- 12 bits
+- top 2 bits:  {11} == read-only, else R/W
+- next 2 bits: minimum priviledge required
+- last 8 bits: actual address
+
+Illegal instruction fault: 
+- access non-existent CSR
+- access higher priviledge CSR
+- write to read-only CSR
+
+Priviledge Levels and Interrupt Enables
+- IRQs at higher priority levels are always *enabled*, independent of mstatus.xIE
+- IRQs at higher priority levels are always *disabled*, independent of mstatus.xIE
+
+
+Machine Trap Registers:
+
+| Opcode  | Name (M)                  | Purpose                                                   |
+|---------|---------------------------|---------------------------------------------------------|
+| mtvec   | Trap Vector Base          |                                        |
+| mstatus | Status                    | Global interrupt enable, previous privilege mode, etc.  |
+| mie     | Interrupt Enable          | Mask to enable/disable specific interrupts.   |
+| mip     | Interrupt Pending         | Indicates which interrupts are pending.       |
+| mepc    | Exception Program Counter | Holds PC to return to after trap/interrupt. |
+| mcause  | Cause                     | Reason code for the last trap or interrupt.            |
+| mtval   | Trap Value                | Additional info for certain traps (fault address or instruction). |
+| priv    | Priviledge Mode           | U/S/M mode; implementation-defined and not user-readable |
+
+Exception Entry:
+- save mepc, mcause, mtval
+- increase priviledge level (optional; 'horizontal' trap keeps prio)
+- ack IRQ?
+- update mstatus.{mie <= 0, mpie <= mie, mpp <= priviledge}
+- PC <= {mvtec.base, 2'b00}, OR for async (irq) in vectored mode, {mtvec.base + 4 * mcause.exception_code}
+
+Exception Handling:
+- SW is responsible for saving *any/all* registers used in handler
+- SW is responsible for incrementing mepc for synchronous trap (avoid mret infinite loop)
+- return via mret
+
+Exception Return:
+- restore priviledge to mstatus.mpp
+- update mstatus.{mie <= mpie, mpie <= 1, mpp <= ?}
+- PC <= mepc
+
+
+### Traps (Synchronous)
+
+| Name                  | Num |
+| --------------------- | ----|
+| INST_ADDR_MISALIGNED  | 0   |
+| INST_ACCESS_FAULT     | 1   |
+| ILLEGAL_INST          | 2   |
+| BREAKPOINT            | 3   |
+| LOAD_ADDR_MISALIGNED  | 4   |
+| LOAD_ACCESS_FAULT     | 5   |
+| STORE_ADDR_MISALIGNED | 6   |
+| STORE_ACCESS_FAULT    | 7   |
+| ECALL_U               | 8   |
+| ECALL_M               | 11  |
+
+### Interrupts (Asynchronous)
+
+| Name                | Num |
+| ------------------- | ----|
+| M_SW_IRQ  (MSI)     | 3   |
+| M_TIM_IRQ (MTI)     | 3   |
+| M_EXT     (MEI)     | 11  |
+
+- ECALL is synchronous trap, saves ECALL's PC to mret
+- Ext IRQ is async trap, saves interrupted instruction PC to mret
+
+- Exit trap by 'mret': pc <- mepc
+- Sync trap: must increment mepc before mret to avoid infinite loop
