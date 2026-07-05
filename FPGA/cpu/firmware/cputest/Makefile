@@ -17,6 +17,7 @@ OBJDUMP := $(PREFIX)objdump -d -S -M no-aliases
 SIM_BIN := $(SIM_DIR)/Vcpu_tb
 MEM_LATENCY ?=
 CYCLES ?=
+VERBOSE ?= 0
 RTL_SRCS := $(CPU_DIR)/rtl/rv32defs.sv \
             $(CPU_DIR)/rtl/rv32cpu.sv \
             $(CPU_DIR)/rtl/bus_interface.sv \
@@ -33,10 +34,12 @@ TEST_EXPECTED_INSTALL := \
 all build: $(TEST_HEXES) $(TEST_EXPECTED_INSTALL)
 
 sim: build $(SIM_BIN)
-	@failed=0; \
+	@passed=0; failed=0; total=0; fail_log=""; \
 	tests="$(if $(TEST),$(TEST),$(TESTS))"; \
+	for t in $$tests; do total=$$((total + 1)); done; \
+	n=0; \
 	for t in $$tests; do \
-		echo "=== cputest: $$t ==="; \
+		n=$$((n + 1)); \
 		extra=""; \
 		for s in $(SKIP_REGS_TESTS); do \
 			[ "$$t" = "$$s" ] && extra="+CPUTEST_SKIP_REGS"; \
@@ -47,13 +50,40 @@ sim: build $(SIM_BIN)
 		fi; \
 		[ -n "$(MEM_LATENCY)" ] && extra="$$extra +CPUTEST_MEM_LATENCY=$(MEM_LATENCY)"; \
 		[ -n "$(CYCLES)" ] && extra="$$extra +CPUTEST_CYCLES=$(CYCLES)"; \
-		if $(SIM_BIN) +CPUTEST_HEX=$(MEM_DIR)/$$t.hex +CPUTEST_EXPECTED=$(MEM_DIR)/$$t.expected $$extra; then \
-			echo "=== PASS: $$t ==="; \
+		[ "$(VERBOSE)" = "1" ] && extra="$$extra +CPUTEST_VERBOSE"; \
+		if [ "$(VERBOSE)" = "1" ]; then \
+			echo "=== cputest [$$n/$$total]: $$t ==="; \
+			if $(SIM_BIN) +CPUTEST_HEX=$(MEM_DIR)/$$t.hex +CPUTEST_EXPECTED=$(MEM_DIR)/$$t.expected $$extra; then \
+				passed=$$((passed + 1)); \
+				echo "=== PASS: $$t ==="; \
+			else \
+				failed=$$((failed + 1)); \
+				fail_log="$$fail_log  $$t: (see output above)\n"; \
+			fi; \
 		else \
-			echo "=== FAIL: $$t ==="; \
-			failed=$$((failed + 1)); \
+			out=$$($(SIM_BIN) +CPUTEST_HEX=$(MEM_DIR)/$$t.hex +CPUTEST_EXPECTED=$(MEM_DIR)/$$t.expected $$extra 2>&1); rc=$$?; \
+			if [ $$rc -eq 0 ] && echo "$$out" | grep -q 'cputest: PASS'; then \
+				passed=$$((passed + 1)); \
+				printf '  %-24s ok\n' "$$t"; \
+			else \
+				failed=$$((failed + 1)); \
+				msg=$$(echo "$$out" | sed -n 's/^cputest: FAIL //p' | head -1); \
+				[ -z "$$msg" ] && msg="simulator error (exit $$rc)"; \
+				printf '  %-24s FAIL\n' "$$t"; \
+				echo "$$out" | grep -E '^cputest: FAIL|^%Error:|^%Fatal:' | sed 's/^/    /'; \
+				[ -z "$$(echo "$$out" | grep -E '^cputest: FAIL|^%Error:|^%Fatal:')" ] && \
+					echo "    $$msg"; \
+				fail_log="$$fail_log  $$t: $$msg\n"; \
+			fi; \
 		fi; \
 	done; \
+	echo ""; \
+	if [ $$failed -eq 0 ]; then \
+		echo "$$passed/$$total passed"; \
+	else \
+		echo "$$passed/$$total passed, $$failed failed:"; \
+		printf '%b' "$$fail_log"; \
+	fi; \
 	exit $$failed
 
 $(SIM_BIN): $(RTL_SRCS) | $(SIM_DIR)

@@ -6,10 +6,15 @@
 *.cyclo
 *.hex
 *.lst
+*.jou
+*.log
+
 
 vivado/
 boards/
 _backup/
 FPGA/cpu/mem/
+build/
+obj_dir/
 
 *.code-workspace

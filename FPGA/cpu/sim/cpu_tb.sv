@@ -32,6 +32,7 @@ module cpu_tb;
     logic [31:0] expected_sram [0:SRAM_WORDS-1];
     bit sram_expected_loaded = 1'b0;
     bit skip_register_check = 1'b0;
+    bit verbose = 1'b0;
     int unsigned sram_check_words = 0;
     int unsigned mem_latency = 1;
     int unsigned run_cycles = 20000;
@@ -93,7 +94,9 @@ module cpu_tb;
         if (loaded) begin
             $fclose(rom_file);
             $readmemh(rom_path, instruction_rom);
-            $display("cpu_tb: loaded CPU test ROM from %s", rom_path);
+            if (verbose) begin
+                $display("cpu_tb: loaded CPU test ROM from %s", rom_path);
+            end
         end
     endtask
 
@@ -105,7 +108,9 @@ module cpu_tb;
         if (loaded) begin
             $fclose(expected_file);
             $readmemh(expected_path, expected_registers);
-            $display("cpu_tb: loaded CPU expected registers from %s", expected_path);
+            if (verbose) begin
+                $display("cpu_tb: loaded CPU expected registers from %s", expected_path);
+            end
         end
     endtask
 
@@ -117,7 +122,9 @@ module cpu_tb;
         if (loaded) begin
             $fclose(expected_file);
             $readmemh(expected_path, expected_sram);
-            $display("cpu_tb: loaded CPU expected SRAM from %s", expected_path);
+            if (verbose) begin
+                $display("cpu_tb: loaded CPU expected SRAM from %s", expected_path);
+            end
         end
     endtask
 
@@ -175,6 +182,8 @@ module cpu_tb;
         if (!rom_loaded) begin
             $fatal(1, "cpu_tb: could not load cputest.hex; run make cputest in firmware/");
         end
+
+        verbose = $test$plusargs("CPUTEST_VERBOSE");
 
         expected_loaded = 1'b0;
         if ($value$plusargs("CPUTEST_EXPECTED=%s", expected_path)) begin
@@ -249,7 +258,11 @@ module cpu_tb;
     end
 
     task automatic fail(input string message);
-        $error("[%0t] FAIL: %s", $time, message);
+        if (verbose) begin
+            $error("[%0t] FAIL: %s", $time, message);
+        end else begin
+            $display("cputest: FAIL %s", message);
+        end
         test_failed = 1'b1;
         $finish;
     endtask
@@ -323,13 +336,17 @@ module cpu_tb;
         check_cputest_registers();
         check_cputest_sram();
         if (!test_failed) begin
-            if (!skip_register_check) begin
-                $display("[%0t] PASS: CPU test firmware register results verified", $time);
+            if (verbose) begin
+                if (!skip_register_check) begin
+                    $display("[%0t] PASS: CPU test firmware register results verified", $time);
+                end else begin
+                    $display("[%0t] PASS: CPU test firmware register check skipped", $time);
+                end
+                if (sram_expected_loaded) begin
+                    $display("[%0t] PASS: CPU test firmware SRAM contents verified", $time);
+                end
             end else begin
-                $display("[%0t] PASS: CPU test firmware register check skipped", $time);
-            end
-            if (sram_expected_loaded) begin
-                $display("[%0t] PASS: CPU test firmware SRAM contents verified", $time);
+                $display("cputest: PASS");
             end
         end
         $finish;
