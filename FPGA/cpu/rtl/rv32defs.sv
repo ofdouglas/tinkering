@@ -263,7 +263,7 @@ typedef enum logic [7:0] { // Lower 8 bits of CSR address
     CSR_ADDRESS_MIP            = 8'h44,
     CSR_ADDRESS_MTINST         = 8'h4A,
     CSR_ADDRESS_MTVAL2         = 8'h4B
-} csr_machine_rw_address_e;
+} csr_machine_rw_offset_e;
 
 typedef enum logic [7:0] { // Lower 8 bits of CSR address
     // Machine information registers (0x11–0x15)
@@ -272,14 +272,14 @@ typedef enum logic [7:0] { // Lower 8 bits of CSR address
     CSR_ADDRESS_MIMPID         = 8'h13,
     CSR_ADDRESS_MHARTID        = 8'h14,
     CSR_ADDRESS_MCONFIGPTR     = 8'h15
-} csr_machine_info_address_e;
+} csr_machine_info_offset_e;
 
 typedef enum logic [7:0] { // Lower 8 bits of CSR address
     // Machine aux registers (0x41–0x45)
     CSR_ADDRESS_NMI              = 8'h41,
     CSR_ADDRESS_DEBUG_BASE       = 8'h42,
     CSR_ADDRESS_DEBUG_END        = 8'h43
-} csr_machine_aux_address_e;
+} csr_machine_aux_offset_e;
 
 typedef enum logic [1:0] { // Trap vector base address mode
     MTVEC_MODE_DIRECT =   2'd0,

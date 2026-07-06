@@ -29,14 +29,15 @@ logic [31:0]       x_register_file[31:0];
 MachineSpecialRegs machine_special_regs;
 privilege_mode_e   privilege_mode;
 
-FetchStageRegs fetch_regs;        // Pipeline Stage 1 result
-DecodeStageRegs decode_regs;      // Pipeline Stage 2 results
-ExecuteCombinatorial exec_comb;   // Pipeline Stage 3 result
-ExecuteStageRegs execute_regs;    // 
-MemoryStageRegs memory_regs;      // Pipeline Stage 4 result
+FetchStageRegs       fetch_regs;    // Pipeline Stage 1 result
+DecodeStageRegs      decode_regs;   // Pipeline Stage 2 results
+ExecuteCombinatorial exec_comb;     // Pipeline Stage 3 result
+ExecuteStageRegs     execute_regs;  // 
+MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 
 logic mem_stall;
 logic stall_decode;
+logic csr_wb_stall; // Stall on repeated access to same CSR
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -98,8 +99,17 @@ MemoryControls     mem_ctrl;
 WritebackControls  wb_ctrl;
 logic              invalid_opcode;
 logic              csr_instruction;
+logic              csr_wb_hazard;
 logic              invalid_csr_read_address;
 logic              invalid_csr_write_address;
+
+assign csr_instruction = (opcode == OPCODE_SYSTEM && funct_3 != system_funct3_e'(SYS3_OTHER));
+
+assign csr_wb_hazard = (decode_regs.valid && decode_regs.wb_ctrl.csr_writeback_en && decode_regs.wb_ctrl.csr_address == csr_address) ||
+                       (execute_regs.valid && execute_regs.wb_ctrl.csr_writeback_en && execute_regs.wb_ctrl.csr_address == csr_address) ||
+                       (memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en && memory_regs.wb_ctrl.csr_address == csr_address);
+
+assign csr_wb_stall = csr_wb_hazard && csr_instruction;
 
 // Get instruction values
 always_comb begin
@@ -131,7 +141,7 @@ always_comb begin
         load_use_hazard = 1'b0;
     end
 
-    stall_decode = load_use_hazard;
+    stall_decode = load_use_hazard || csr_wb_stall;
 
     // Assemble immediate value
     case (opcode_e'(opcode))
@@ -143,8 +153,8 @@ always_comb begin
         OPCODE_LOAD:     immediate_bits = {{20{instr[31]}}, instr[31:20]};
         OPCODE_STORE:    immediate_bits = {{20{instr[31]}}, instr[31:25], instr[11:7]};
         OPCODE_IMM_ALU:  immediate_bits = {{20{instr[31]}}, instr[31:20]};
+        OPCODE_SYSTEM:   immediate_bits = {27'd0, rs1_reg_select[4:0]};
         // TODO: cleanup for immediate shifts: func7 bit shows up in immediate_bits, but is ignored in ALU
-        // TODO: imm CSR instructions
         default:         immediate_bits = 'x;
     endcase
 end
@@ -152,16 +162,16 @@ end
 // Read CSRs (Always read, ignored if not a CSR instruction)
 always_comb begin
     logic [3:0] csr_class_bits;
-    logic [7:0] csr_address_bits;
+    logic [7:0] csr_offset_bits;
 
     csr_class_bits   = instr[31:28];
-    csr_address_bits = instr[27:20];
+    csr_offset_bits = instr[27:20];
     csr_read = '0;
     invalid_csr_read_address = 1'b0;
 
     case (csr_class_e'(csr_class_bits))
         CSR_CLASS_MACHINE_RW: begin
-            case (csr_machine_rw_address_e'(csr_address_bits))
+            case (csr_machine_rw_offset_e'(csr_offset_bits))
                 // CSR_ADDRESS_MSTATUS: csr_read = machine_special_regs.mstatus;
                 CSR_ADDRESS_MISA:    csr_read = MISA_VALUE;
                 CSR_ADDRESS_MIE:     csr_read = machine_special_regs.mie;
@@ -182,14 +192,12 @@ always_comb begin
             invalid_csr_read_address = 1'b1;
         end
         CSR_CLASS_MACHINE_INFO: begin
-            // Not implemented yet
-            invalid_csr_read_address = 1'b1;
-            case (csr_machine_info_address_e'(csr_address_bits))
-                CSR_ADDRESS_MVENDORID:  csr_read = '0;
-                CSR_ADDRESS_MARCHID:    csr_read = 'x; // machine_special_regs.mstatus.marchid;
-                CSR_ADDRESS_MIMPID:     csr_read = 'x; // machine_special_regs.mstatus.mimpid;
-                CSR_ADDRESS_MHARTID:    csr_read = 'x; // machine_special_regs.mstatus.mhartid;
-                CSR_ADDRESS_MCONFIGPTR: csr_read = 'x; // machine_special_regs.mstatus.mconfigptr;
+            case (csr_machine_info_offset_e'(csr_offset_bits))
+                CSR_ADDRESS_MVENDORID:  csr_read = 32'h00000000;
+                CSR_ADDRESS_MARCHID:    csr_read = 32'h000000FD;
+                CSR_ADDRESS_MIMPID:     csr_read = 32'h00000001;
+                CSR_ADDRESS_MHARTID:    csr_read = 32'h00000000;
+                CSR_ADDRESS_MCONFIGPTR: csr_read = 32'h00000000;
                 default:                invalid_csr_read_address = 1'b1;
             endcase
         end
@@ -330,8 +338,6 @@ always_comb begin
             invalid_opcode = 1'b1; // Not implemented yet
         end
         OPCODE_SYSTEM: begin
-            csr_instruction = (funct_3 != system_funct3_e'(SYS3_OTHER));
-
             case (system_funct3_e'(funct_3))
                 SYS3_CSRRW: begin
                     alu_ctrl.alu_left_src    = ALU_LEFT_SRC_RS1;
@@ -356,6 +362,33 @@ always_comb begin
                     alu_ctrl.alu_right_src   = ALU_RIGHT_SRC_CSR;
                     alu_ctrl.alu_mux_ctrl    = ALU_MUX_LOGIC;
                     alu_ctrl.logic_ctrl      = LOGIC_OR;
+                    wb_ctrl.writeback_en     = 1'b1;
+                    wb_ctrl.csr_read         = 1'b1;
+                    wb_ctrl.csr_writeback_en = (rs1_reg_select == '0) ? 1'b0 : 1'b1;
+                end
+                SYS3_CSRRWI: begin
+                    alu_ctrl.alu_left_src    = ALU_LEFT_SRC_IMM;
+                    alu_ctrl.alu_right_src   = ALU_RIGHT_SRC_ZERO;
+                    alu_ctrl.alu_mux_ctrl    = ALU_MUX_LOGIC;
+                    alu_ctrl.logic_ctrl      = LOGIC_OR;
+                    wb_ctrl.writeback_en     = 1'b1;
+                    wb_ctrl.csr_read         = 1'b1;
+                    wb_ctrl.csr_writeback_en = (rs1_reg_select == '0) ? 1'b0 : 1'b1;
+                end
+                SYS3_CSRRSI: begin
+                    alu_ctrl.alu_left_src    = ALU_LEFT_SRC_IMM;
+                    alu_ctrl.alu_right_src   = ALU_RIGHT_SRC_CSR;
+                    alu_ctrl.alu_mux_ctrl    = ALU_MUX_LOGIC;
+                    alu_ctrl.logic_ctrl      = LOGIC_OR;
+                    wb_ctrl.writeback_en     = 1'b1;
+                    wb_ctrl.csr_read         = 1'b1;
+                    wb_ctrl.csr_writeback_en = (rs1_reg_select == '0) ? 1'b0 : 1'b1;
+                end
+                SYS3_CSRRCI: begin
+                    alu_ctrl.alu_left_src    = ALU_LEFT_SRC_IMM;
+                    alu_ctrl.alu_right_src   = ALU_RIGHT_SRC_CSR;
+                    alu_ctrl.alu_mux_ctrl    = ALU_MUX_LOGIC;
+                    alu_ctrl.logic_ctrl      = LOGIC_CLEAR;
                     wb_ctrl.writeback_en     = 1'b1;
                     wb_ctrl.csr_read         = 1'b1;
                     wb_ctrl.csr_writeback_en = (rs1_reg_select == '0) ? 1'b0 : 1'b1;
@@ -402,7 +435,9 @@ always_ff @(posedge clk) begin
             decode_regs.wb_ctrl                <= wb_ctrl;
             decode_regs.invalid_opcode         <= invalid_opcode;
         end
-    end 
+    end else begin
+        decode_regs <= decode_regs;
+    end
 end
 
 
@@ -695,22 +730,12 @@ always_ff @(posedge clk) begin
     end
 end
 
-typedef struct packed {
-    mstatus_csr_t  mstatus;
-    mie_csr_t      mie;
-    mip_csr_t      mip;
-    mtvec_csr_t    mtvec;
-    mepc_csr_t     mepc;
-    mcause_csr_t   mcause;
-    mtval_csr_t    mtval;
-} MachineSpecialRegs;
-
 // Special Registers
 always_ff @(posedge clk) begin
     logic [3:0] csr_class_bits;
-    logic [7:0] csr_address_bits;
+    logic [7:0] csr_offset_bits;
     csr_class_bits   = memory_regs.wb_ctrl.csr_address[11:8];
-    csr_address_bits = memory_regs.wb_ctrl.csr_address[7:0];
+    csr_offset_bits = memory_regs.wb_ctrl.csr_address[7:0];
 
     if (!rst_n) begin
         machine_special_regs.mie    <= '0;
@@ -720,7 +745,7 @@ always_ff @(posedge clk) begin
     end else if (!mem_stall && memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en) begin
         case (csr_class_e'(csr_class_bits))
             CSR_CLASS_MACHINE_RW: begin
-                case (csr_machine_rw_address_e'(csr_address_bits))
+                case (csr_machine_rw_offset_e'(csr_offset_bits))
                     CSR_ADDRESS_MIE:     machine_special_regs.mie     <= csr_regs_wb_data;
                     CSR_ADDRESS_MIP:     machine_special_regs.mip     <= csr_regs_wb_data;
                     CSR_ADDRESS_MTVEC:   machine_special_regs.mtvec   <= {csr_regs_wb_data[31:2], MTVEC_MODE_DIRECT};
@@ -743,7 +768,5 @@ always_ff @(posedge clk) begin
         machine_special_regs <= machine_special_regs;
     end
 end
-
-
 
 endmodule

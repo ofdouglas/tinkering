@@ -30,8 +30,11 @@ TEST_EXPECTED_INSTALL := \
 	$(foreach t,$(TESTS),$(if $(wildcard $(t).expected),$(MEM_DIR)/$(t).expected)) \
 	$(foreach t,$(TESTS),$(if $(wildcard $(t).sram.expected),$(MEM_DIR)/$(t).sram.expected))
 
-.PHONY: all build sim clean
+.PHONY: all build sim spike-ref clean
 all build: $(TEST_HEXES) $(TEST_EXPECTED_INSTALL)
+
+spike-ref:
+	SPIKE="$${SPIKE:-$$HOME/riscv-spike/bin/spike}" python3 spike_check.py $(if $(TEST),$(TEST))
 
 sim: build $(SIM_BIN)
 	@passed=0; failed=0; total=0; fail_log=""; \
