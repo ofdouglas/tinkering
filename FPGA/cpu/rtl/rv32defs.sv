@@ -299,7 +299,6 @@ typedef struct packed {
 // Control Path Structs
 ///////////////////////////////////////////////////////////////////////////////
 
-
 // TODO: compute all ALU mux values in decode, rather than passing instruction types
 typedef struct packed {
     // Overall control
@@ -334,6 +333,22 @@ typedef struct packed {
     logic [11:0] csr_address;
 } WritebackControls;
 
+typedef struct packed {
+    // Set by Execute stage
+    logic         branch_taken;
+    logic [31:0]  branch_pc;
+
+    // Set by Decode stage
+    logic         invalid_opcode;
+    logic         decode_flush;
+    logic         decode_trap;
+    logic         exception_return;
+
+    // Set by Memory stage
+    logic         mem_stall;
+    logic         mem_unaligned;
+    logic         bus_error;
+} CpuControl;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Pipeline Registers
@@ -368,7 +383,6 @@ typedef struct packed {
     MemoryControls     mem_ctrl;
     WritebackControls  wb_ctrl;
     logic              csr_instruction;
-    logic              invalid_opcode;
 } DecodeStageRegs;
 
 typedef struct packed {
@@ -410,17 +424,15 @@ typedef struct packed {
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef struct packed {
+    logic [1:0]      mxl;         // Machine X-Len (Word size of the processor)
+    logic [25:0]     extensions;  // ISA Extensions supported
+} misa_csr_t;
+localparam logic [31:0] MISA_VALUE = {2'b01, 22'd0, 1'b1, 7'd0};  // RV32I (bit 8)
+
+typedef struct packed {
     logic [29:0]   base; // Machine Trap Vector Base Address
     mtvec_mode_e   mode;
 } mtvec_csr_t;
-
-typedef struct packed {
-    logic [31:0] irq_enable_bits; // access with irq_source_e (TODO: clean up this access method)
-} mie_csr_t;
-
-typedef struct packed {
-    logic [31:0] irq_pending_bits; // access with irq_source_e (TODO: clean up this access method)
-} mip_csr_t;
 
 typedef struct packed {
     logic            mie;  // Bit 3: Global Machine Interrupt Enable
@@ -429,37 +441,90 @@ typedef struct packed {
 } mstatus_csr_t;
 
 typedef struct packed {
-    logic [1:0]      mxl;         // Machine X-Len (Word size of the processor)
-    logic [25:0]     extensions;  // ISA Extensions supported
-} misa_csr_t;
-
-localparam logic [31:0] MISA_VALUE = {2'b01, 22'd0, 1'b1, 7'd0};  // RV32I (bit 8)
-
-typedef struct packed { 
-    logic [31:0] mepc;  // Machine Exception Program Counter (faulting instruction address if sync)
-                        // interrupted instruction if async (ex: external interrupt)
-                        // mret returns from handler to this address, so sync traps must increment it!
-} mepc_csr_t;
+    logic        msi_enable;  // IRQ source 3
+    logic        mti_enable;  // IRQ source 7
+    logic        mei_enable;  // IRQ source 11
+} mie_csr_t;
 
 typedef struct packed {
-    logic        is_interrupt; // 0 = trap (synchronous), 1 = interrupt (asynchronous)
-    logic [30:0] exception_code;
-} mcause_csr_t;
+    logic        msi_pending;  // IRQ source 3
+    logic        mti_pending;  // IRQ source 7
+    logic        mei_pending;  // IRQ source 11
+} mip_csr_t;
 
 typedef struct packed {
-    logic [31:0] mtval; // Machine Trap Value (faulting bus address or instruction bits)
-} mtval_csr_t;
-
-
-
-typedef struct packed {
-    // mstatus_csr_t    mstatus;
+    mstatus_csr_t    mstatus;
+    mtvec_csr_t      mtvec;
     mie_csr_t        mie;
     mip_csr_t        mip;
-    mtvec_csr_t      mtvec;
-    // mepc_csr_t       mepc;
-    // mcause_csr_t     mcause;
-    // mtval_csr_t      mtval;
+    logic [31:0]     mepc;    // bit[31:0] exception_pc
+    logic [31:0]     mcause;  // bit[31] is_interrupt, bit[30:0] exception_code
+    logic [31:0]     mtval;   // bit[31:0] trap_value
 } MachineSpecialRegs;
+
+///////////////////////////////////////////////////////////////////////////////
+// CSR Access Functions
+///////////////////////////////////////////////////////////////////////////////
+
+function automatic logic [31:0] read_mstatus(mstatus_csr_t mstatus);
+    return {
+        19'd0,
+        mstatus.mpp,
+        3'd0,
+        mstatus.mpie,
+        3'd0,
+        mstatus.mie,
+        3'd0
+    };
+endfunction
+
+function automatic mstatus_csr_t write_mstatus(logic [31:0] data);
+    mstatus_csr_t mstatus;
+    mstatus.mpp  = privilege_mode_e'(data[12:11]);
+    mstatus.mpie = data[7];
+    mstatus.mie  = data[3];
+    return mstatus;
+endfunction
+
+function automatic logic [31:0] read_mip(mip_csr_t mip);
+    return {
+        20'd0,
+        mip.mei_pending,
+        3'd0,
+        mip.mti_pending,
+        3'd0,
+        mip.msi_pending,
+        3'd0
+    };
+endfunction
+
+function automatic mip_csr_t write_mip(logic [31:0] data);
+    mip_csr_t mip;
+    mip.mei_pending = data[11];
+    mip.mti_pending = data[7];
+    mip.msi_pending = data[3];
+    return mip;
+endfunction
+
+function automatic logic [31:0] read_mie(mie_csr_t mie);
+    return {
+        20'd0,
+        mie.mei_enable,
+        3'd0,
+        mie.mti_enable,
+        3'd0,
+        mie.msi_enable,
+        3'd0
+    };
+endfunction
+
+function automatic mie_csr_t write_mie(logic [31:0] data);
+    mie_csr_t mie;
+    mie.mei_enable = data[11];
+    mie.mti_enable = data[7];
+    mie.msi_enable = data[3];
+    return mie;
+endfunction
+
 
 endpackage

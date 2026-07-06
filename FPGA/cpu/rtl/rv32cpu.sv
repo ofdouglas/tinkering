@@ -28,39 +28,50 @@ module rv32cpu(
 logic [31:0]       x_register_file[31:0];
 MachineSpecialRegs machine_special_regs;
 privilege_mode_e   privilege_mode;
+CpuControl         cpu_ctrl;
 
 FetchStageRegs       fetch_regs;    // Pipeline Stage 1 result
 DecodeStageRegs      decode_regs;   // Pipeline Stage 2 results
-ExecuteCombinatorial exec_comb;     // Pipeline Stage 3 result
-ExecuteStageRegs     execute_regs;  // 
+ExecuteStageRegs     execute_regs;  // Pipeline Stage 3 results
 MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 
-logic mem_stall;
-logic stall_decode;
 logic csr_wb_stall; // Stall on repeated access to same CSR
 
+
+logic trap_taken;
+assign trap_taken = cpu_ctrl.decode_trap;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 1: Instruction Fetch
 ///////////////////////////////////////////////////////////////////////////////
 logic [31:0] next_pc, pc_plus4;
+logic instruction_flush;
+
+assign instruction_flush = trap_taken || cpu_ctrl.exception_return || (decode_regs.valid && cpu_ctrl.branch_taken);
 
 // Address generation
 always_comb begin
     fetch_addr = fetch_regs.current_pc[31:2];
-
     pc_plus4 = fetch_regs.current_pc + 32'd4;
-    next_pc = exec_comb.branch_taken ? exec_comb.branch_pc : pc_plus4;
+
+    if (trap_taken) begin
+        next_pc = {machine_special_regs.mtvec.base, 2'b00};
+    end else if (cpu_ctrl.exception_return) begin
+        next_pc = machine_special_regs.mepc;
+    end else if (decode_regs.valid && cpu_ctrl.branch_taken) begin
+        next_pc = cpu_ctrl.branch_pc;
+    end else begin
+        next_pc = pc_plus4;
+    end
 end
 
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         fetch_regs <= '0;
-    end else if (!stall_decode && !mem_stall) begin
+    end else if (!cpu_ctrl.decode_flush && !cpu_ctrl.mem_stall) begin
         fetch_regs.unaligned_pc <= next_pc[1:0] != '0;
 
-        // Flush on branch miss, by making it a NOP
-        fetch_regs.valid <= fetch_valid && !exec_comb.branch_taken;
+        fetch_regs.valid <= fetch_valid && !instruction_flush;
 
         if (fetch_valid) begin
             fetch_regs.current_pc  <= next_pc;
@@ -79,7 +90,7 @@ logic [6:0] opcode;
 logic [4:0] rs1_reg_select, rs2_reg_select;
 logic [6:0] funct_7;
 logic [2:0] funct_3;
-logic [11:0] csr_address;
+logic [11:0] csr_address, funct_12;
 
 assign instr   = fetch_regs.instruction;
 assign opcode  = fetch_regs.instruction[6:0];
@@ -88,6 +99,7 @@ assign rs2_reg_select = instr[24:20];
 assign funct_7 = fetch_regs.instruction[31:25];
 assign funct_3 = fetch_regs.instruction[14:12];
 assign csr_address = fetch_regs.instruction[31:20];
+assign funct_12 = fetch_regs.instruction[31:20];
 
 // Datapath results
 logic [31:0] rs1_reg_mux, rs2_reg_mux, immediate_bits, csr_read;
@@ -97,7 +109,6 @@ AluControls        alu_ctrl;
 JumpBranchControls jump_branch_ctrl;
 MemoryControls     mem_ctrl;
 WritebackControls  wb_ctrl;
-logic              invalid_opcode;
 logic              csr_instruction;
 logic              csr_wb_hazard;
 logic              invalid_csr_read_address;
@@ -141,7 +152,7 @@ always_comb begin
         load_use_hazard = 1'b0;
     end
 
-    stall_decode = load_use_hazard || csr_wb_stall;
+    cpu_ctrl.decode_flush = load_use_hazard || csr_wb_stall;
 
     // Assemble immediate value
     case (opcode_e'(opcode))
@@ -172,14 +183,14 @@ always_comb begin
     case (csr_class_e'(csr_class_bits))
         CSR_CLASS_MACHINE_RW: begin
             case (csr_machine_rw_offset_e'(csr_offset_bits))
-                // CSR_ADDRESS_MSTATUS: csr_read = machine_special_regs.mstatus;
+                CSR_ADDRESS_MSTATUS: csr_read = read_mstatus(machine_special_regs.mstatus);
                 CSR_ADDRESS_MISA:    csr_read = MISA_VALUE;
-                CSR_ADDRESS_MIE:     csr_read = machine_special_regs.mie;
-                CSR_ADDRESS_MIP:     csr_read = machine_special_regs.mip;
+                CSR_ADDRESS_MIE:     csr_read = read_mie(machine_special_regs.mie);
+                CSR_ADDRESS_MIP:     csr_read = read_mip(machine_special_regs.mip);
                 CSR_ADDRESS_MTVEC:   csr_read = machine_special_regs.mtvec;
-                // CSR_ADDRESS_MEPC:    csr_read = machine_special_regs.mepc;
-                // CSR_ADDRESS_MCAUSE:  csr_read = machine_special_regs.mcause;
-                // CSR_ADDRESS_MTVAL:   csr_read = machine_special_regs.mtval;
+                CSR_ADDRESS_MEPC:    csr_read = machine_special_regs.mepc;
+                CSR_ADDRESS_MCAUSE:  csr_read = machine_special_regs.mcause;
+                CSR_ADDRESS_MTVAL:   csr_read = machine_special_regs.mtval;
                 default:             invalid_csr_read_address = 1'b1;
             endcase
         end
@@ -209,7 +220,9 @@ end
 
 // Decode instruction, set controls/operands
 always_comb begin
-    invalid_opcode    = 1'b0;
+    cpu_ctrl.invalid_opcode    = 1'b0;
+    cpu_ctrl.decode_trap       = 1'b0;
+    cpu_ctrl.exception_return  = 1'b0;
     alu_ctrl          = '0;
     alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
     alu_ctrl.alu_left_src = ALU_LEFT_SRC_DONT_CARE;
@@ -335,10 +348,29 @@ always_comb begin
         OPCODE_FENCE: begin
             alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
             alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
-            invalid_opcode = 1'b1; // Not implemented yet
+            cpu_ctrl.invalid_opcode = 1'b1; // Not implemented yet
         end
         OPCODE_SYSTEM: begin
             case (system_funct3_e'(funct_3))
+                SYS3_OTHER: begin
+                    case (system_funct12_e'(funct_12))
+                        SYS12_MRET: begin
+                            cpu_ctrl.exception_return = 1'b1;
+                        end
+                        SYS12_WFI: begin
+                            cpu_ctrl.invalid_opcode = 1'b1;
+                        end
+                        SYS12_ECALL: begin
+                            cpu_ctrl.decode_trap = 1'b1;
+                        end
+                        SYS12_EBREAK: begin
+                            cpu_ctrl.invalid_opcode = 1'b1;
+                        end
+                        default: begin
+                            cpu_ctrl.invalid_opcode = 1'b1;
+                        end
+                    endcase
+                end
                 SYS3_CSRRW: begin
                     alu_ctrl.alu_left_src    = ALU_LEFT_SRC_RS1;
                     alu_ctrl.alu_right_src   = ALU_RIGHT_SRC_ZERO;
@@ -394,12 +426,12 @@ always_comb begin
                     wb_ctrl.csr_writeback_en = (rs1_reg_select == '0) ? 1'b0 : 1'b1;
                 end
                 default: begin
-                    invalid_opcode = 1'b1;
+                    cpu_ctrl.invalid_opcode = 1'b1;
                 end
             endcase
         end
         default: begin
-            invalid_opcode = 1'b1;
+            cpu_ctrl.invalid_opcode = 1'b1;
             alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
             alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
         end
@@ -408,38 +440,34 @@ end
 
 always_ff @(posedge clk) begin
     logic flush_instruction;
-    flush_instruction = exec_comb.branch_taken || invalid_opcode;
+    flush_instruction = cpu_ctrl.branch_taken || cpu_ctrl.invalid_opcode; // todo: decode_regs.valid?
 
     if (!rst_n) begin
         decode_regs <= '0;
-    end else if (!mem_stall) begin
-        if (stall_decode) begin
-            decode_regs <= '0;
-        end else begin
-            // Data path
-            decode_regs.rs1_reg                <= rs1_reg_mux;
-            decode_regs.rs2_reg                <= rs2_reg_mux;
-            decode_regs.current_pc             <= fetch_regs.fetch_pc;
-            decode_regs.immediate              <= immediate_bits;
-            decode_regs.rs1_index              <= rs1_reg_select;
-            decode_regs.rs2_index              <= rs2_reg_select;
-            decode_regs.csr_read               <= csr_read;
-            decode_regs.csr_instruction        <= csr_instruction;
-
-            // Control path
-            decode_regs.valid                  <= fetch_regs.valid && !flush_instruction;
-            decode_regs.funct_3                <= funct_3;
-            decode_regs.alu_ctrl               <= alu_ctrl;
-            decode_regs.jump_branch_ctrl       <= jump_branch_ctrl;
-            decode_regs.mem_ctrl               <= mem_ctrl;
-            decode_regs.wb_ctrl                <= wb_ctrl;
-            decode_regs.invalid_opcode         <= invalid_opcode;
-        end
-    end else begin
+    end else if (cpu_ctrl.mem_stall) begin
         decode_regs <= decode_regs;
+    end else if (cpu_ctrl.decode_flush || cpu_ctrl.invalid_opcode) begin
+        decode_regs <= '0;
+    end else begin
+        // Data path
+        decode_regs.rs1_reg                <= rs1_reg_mux;
+        decode_regs.rs2_reg                <= rs2_reg_mux;
+        decode_regs.current_pc             <= fetch_regs.fetch_pc;
+        decode_regs.immediate              <= immediate_bits;
+        decode_regs.rs1_index              <= rs1_reg_select;
+        decode_regs.rs2_index              <= rs2_reg_select;
+        decode_regs.csr_read               <= csr_read;
+        decode_regs.csr_instruction        <= csr_instruction;
+
+        // Control path
+        decode_regs.valid                  <= fetch_regs.valid && !flush_instruction;
+        decode_regs.funct_3                <= funct_3;
+        decode_regs.alu_ctrl               <= alu_ctrl;
+        decode_regs.jump_branch_ctrl       <= jump_branch_ctrl;
+        decode_regs.mem_ctrl               <= mem_ctrl;
+        decode_regs.wb_ctrl                <= wb_ctrl;
     end
 end
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 3: Execute
@@ -584,10 +612,10 @@ always_comb begin
     // JALR uses rs1 + immediate; all other branching uses PC + immediate
     base_address = decode_regs.jump_branch_ctrl.is_jump_register_instr ? alu_left[31:0] : decode_regs.current_pc[31:0];
     address_sum = base_address + decode_regs.immediate[31:0];
-    exec_comb.branch_pc = {address_sum[31:1], 1'b0};
+    cpu_ctrl.branch_pc = {address_sum[31:1], 1'b0};
 
     branch_taken = decode_regs.jump_branch_ctrl.is_branch_instr && compare_result;
-    exec_comb.branch_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr);
+    cpu_ctrl.branch_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr);
 end
 
 // ALU Result
@@ -605,7 +633,7 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         execute_regs <= '0;
-    end else if (!mem_stall) begin
+    end else if (!cpu_ctrl.mem_stall) begin
         execute_regs.exec_result      <= alu_result;
         // Forward unmodified rs2 for store instructions, unmodified PC for JAL/JALR
         execute_regs.rs2_csr_reg      <= rs2_store_value;
@@ -654,7 +682,9 @@ always_comb begin
     is_store = execute_regs.valid && execute_regs.mem_ctrl.memory_write;
     is_load = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !is_store;
 
-    mem_stall = (is_store && !wr_ack) || (is_load && !rd_valid);
+    cpu_ctrl.mem_stall = (is_store && !wr_ack) || (is_load && !rd_valid);
+    cpu_ctrl.mem_unaligned = 1'b0; // TODO:
+    cpu_ctrl.bus_error = 1'b0; // TODO:
 
     case (mem_size)
         MEM_BYTE : begin
@@ -691,7 +721,7 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         memory_regs <= '0;
-    end else if (!mem_stall) begin
+    end else if (!cpu_ctrl.mem_stall) begin
         memory_regs.writeback_data <= (execute_regs.mem_ctrl.memory_request && !execute_regs.mem_ctrl.memory_write) ? shifted_rd_data : execute_regs.exec_result;
         memory_regs.csr_read_data     <= execute_regs.rs2_csr_reg;
         memory_regs.pc_plus4    <= execute_regs.current_pc + 32'd4; // JAL/JALR need PC+4
@@ -722,7 +752,7 @@ end
 
 // X-Register File
 always_ff @(posedge clk) begin
-    if (!mem_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
+    if (!cpu_ctrl.mem_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
         if (memory_regs.wb_ctrl.rd_reg_select != '0) begin
             // Writeback of ALU result, Load data, or CSR read data
             x_register_file[memory_regs.wb_ctrl.rd_reg_select] <= xregs_wb_data;
@@ -740,16 +770,22 @@ always_ff @(posedge clk) begin
     if (!rst_n) begin
         machine_special_regs.mie    <= '0;
         machine_special_regs.mip    <= '0;
+        machine_special_regs.mepc   <= '0;
+        machine_special_regs.mcause <= '0;
+        machine_special_regs.mtval  <= '0;
         machine_special_regs.mtvec  <= {30'd0, MTVEC_MODE_DIRECT};
         privilege_mode              <= PRIVILEGE_MODE_MACHINE;
-    end else if (!mem_stall && memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en) begin
+    end else if (!cpu_ctrl.mem_stall && memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en) begin
         case (csr_class_e'(csr_class_bits))
             CSR_CLASS_MACHINE_RW: begin
                 case (csr_machine_rw_offset_e'(csr_offset_bits))
-                    CSR_ADDRESS_MIE:     machine_special_regs.mie     <= csr_regs_wb_data;
-                    CSR_ADDRESS_MIP:     machine_special_regs.mip     <= csr_regs_wb_data;
+                    CSR_ADDRESS_MIE:     machine_special_regs.mie     <= write_mie(csr_regs_wb_data);
+                    CSR_ADDRESS_MIP:     machine_special_regs.mip     <= write_mip(csr_regs_wb_data);
                     CSR_ADDRESS_MTVEC:   machine_special_regs.mtvec   <= {csr_regs_wb_data[31:2], MTVEC_MODE_DIRECT};
-                    // CSR_ADDRESS_MSTATUS: machine_special_regs.mstatus <= csr_regs_wb_data;
+                    CSR_ADDRESS_MSTATUS: machine_special_regs.mstatus <= write_mstatus(csr_regs_wb_data);
+                    CSR_ADDRESS_MEPC:    machine_special_regs.mepc    <= csr_regs_wb_data;
+                    CSR_ADDRESS_MCAUSE:  machine_special_regs.mcause  <= csr_regs_wb_data;
+                    CSR_ADDRESS_MTVAL:   machine_special_regs.mtval   <= csr_regs_wb_data;
                     default:             invalid_csr_write_address = 1'b1;
                 endcase
             end
