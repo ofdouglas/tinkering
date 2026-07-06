@@ -104,9 +104,9 @@ b2_taken:
 
     /* --- C2: CSRRW rd -> CSRRC rs1=rd (clear using prior CSR readback) --- */
     load_mti x18
-    csrrw x19, mie, x18      /* verify x19 = 0x00000800 (old mie); mie = MEI|MTI */
-    csrrc x20, mie, x19      /* verify x20 = 0x00000880 (old mie); clear MEI|MTI mask bits */
-    csrrs x21, mie, x0       /* verify x21 = 0x00000000 */
+    csrrw x19, mie, x18      /* verify x19 = 0x00000800 (old mie); mie = MTI only = 0x80 */
+    csrrc x20, mie, x19      /* verify x20 = 0x00000080 (old mie); clear MEI mask from x19 (no-op on MTI-only mie) */
+    csrrs x21, mie, x0       /* verify x21 = 0x00000080 */
 
     nop
     nop

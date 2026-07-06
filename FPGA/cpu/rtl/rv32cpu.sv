@@ -28,18 +28,16 @@ module rv32cpu(
 logic [31:0]       x_register_file[31:0];
 MachineSpecialRegs machine_special_regs;
 privilege_mode_e   privilege_mode;
-CpuControl         cpu_ctrl;
 
 FetchStageRegs       fetch_regs;    // Pipeline Stage 1 result
 DecodeStageRegs      decode_regs;   // Pipeline Stage 2 results
 ExecuteStageRegs     execute_regs;  // Pipeline Stage 3 results
 MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 
-logic csr_wb_stall; // Stall on repeated access to same CSR
-
-
-logic trap_taken;
-assign trap_taken = cpu_ctrl.decode_trap;
+///////////////////////////////////////////////////////////////////////////////
+// Control Signals (Combinatorial)
+///////////////////////////////////////////////////////////////////////////////
+CpuControl         cpu_ctrl;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 1: Instruction Fetch
@@ -47,14 +45,14 @@ assign trap_taken = cpu_ctrl.decode_trap;
 logic [31:0] next_pc, pc_plus4;
 logic instruction_flush;
 
-assign instruction_flush = trap_taken || cpu_ctrl.exception_return || (decode_regs.valid && cpu_ctrl.branch_taken);
+assign instruction_flush = cpu_ctrl.decode_trap || cpu_ctrl.exception_return || (decode_regs.valid && cpu_ctrl.branch_taken);
 
 // Address generation
 always_comb begin
     fetch_addr = fetch_regs.current_pc[31:2];
     pc_plus4 = fetch_regs.current_pc + 32'd4;
 
-    if (trap_taken) begin
+    if (cpu_ctrl.decode_trap) begin
         next_pc = {machine_special_regs.mtvec.base, 2'b00};
     end else if (cpu_ctrl.exception_return) begin
         next_pc = machine_special_regs.mepc;
@@ -111,6 +109,7 @@ MemoryControls     mem_ctrl;
 WritebackControls  wb_ctrl;
 logic              csr_instruction;
 logic              csr_wb_hazard;
+logic              csr_wb_stall; // Stall on repeated access to same CSR
 logic              invalid_csr_read_address;
 logic              invalid_csr_write_address;
 
@@ -118,7 +117,8 @@ assign csr_instruction = (opcode == OPCODE_SYSTEM && funct_3 != system_funct3_e'
 
 assign csr_wb_hazard = (decode_regs.valid && decode_regs.wb_ctrl.csr_writeback_en && decode_regs.wb_ctrl.csr_address == csr_address) ||
                        (execute_regs.valid && execute_regs.wb_ctrl.csr_writeback_en && execute_regs.wb_ctrl.csr_address == csr_address) ||
-                       (memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en && memory_regs.wb_ctrl.csr_address == csr_address);
+                       // TODO: get rid of this, CSR writes retire in Memory Stage
+                       (memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en && memory_regs.wb_ctrl.csr_address == csr_address); 
 
 assign csr_wb_stall = csr_wb_hazard && csr_instruction;
 
@@ -652,7 +652,7 @@ end
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// Stage 4: Memory Access
+// Stage 4A: Memory Access
 ///////////////////////////////////////////////////////////////////////////////
 logic [3:0] byte_lanes;
 logic [31:0] shifted_wr_data, shifted_rd_data;
@@ -732,50 +732,36 @@ always_ff @(posedge clk) begin
     end
 end
 
-
 ///////////////////////////////////////////////////////////////////////////////
-// Stage 5  Writeback
+// Stage 4B: Special Registers
 ///////////////////////////////////////////////////////////////////////////////
-logic [31:0] xregs_wb_data, csr_regs_wb_data;
-assign csr_regs_wb_data = memory_regs.writeback_data;
-
-always_comb begin
-    // Writeback to X-Register File: CSR, JALR, or ALU/Load results
-    if (memory_regs.wb_ctrl.csr_read) begin
-        xregs_wb_data = memory_regs.csr_read_data;
-    end else if (memory_regs.jump_branch_ctrl.is_jump_instr) begin
-        xregs_wb_data = memory_regs.pc_plus4;
-    end else begin
-        xregs_wb_data = memory_regs.writeback_data;
-    end
-end
-
-// X-Register File
-always_ff @(posedge clk) begin
-    if (!cpu_ctrl.mem_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
-        if (memory_regs.wb_ctrl.rd_reg_select != '0) begin
-            // Writeback of ALU result, Load data, or CSR read data
-            x_register_file[memory_regs.wb_ctrl.rd_reg_select] <= xregs_wb_data;
-        end
-    end
-end
 
 // Special Registers
 always_ff @(posedge clk) begin
-    logic [3:0] csr_class_bits;
-    logic [7:0] csr_offset_bits;
-    csr_class_bits   = memory_regs.wb_ctrl.csr_address[11:8];
-    csr_offset_bits = memory_regs.wb_ctrl.csr_address[7:0];
+    logic [31:0] csr_regs_wb_data;
+    logic        csr_writeback_en;
+    logic [3:0]  csr_class_bits;
+    logic [7:0]  csr_offset_bits;
+
+    csr_regs_wb_data = execute_regs.exec_result;
+    csr_writeback_en = execute_regs.valid && execute_regs.wb_ctrl.csr_writeback_en;
+    csr_class_bits   = execute_regs.wb_ctrl.csr_address[11:8];
+    csr_offset_bits  = execute_regs.wb_ctrl.csr_address[7:0];
 
     if (!rst_n) begin
-        machine_special_regs.mie    <= '0;
-        machine_special_regs.mip    <= '0;
-        machine_special_regs.mepc   <= '0;
-        machine_special_regs.mcause <= '0;
-        machine_special_regs.mtval  <= '0;
-        machine_special_regs.mtvec  <= {30'd0, MTVEC_MODE_DIRECT};
-        privilege_mode              <= PRIVILEGE_MODE_MACHINE;
-    end else if (!cpu_ctrl.mem_stall && memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en) begin
+        machine_special_regs.mstatus <= '0;
+        machine_special_regs.mie     <= '0;
+        machine_special_regs.mip     <= '0;
+        machine_special_regs.mepc    <= '0;
+        machine_special_regs.mcause  <= '0;
+        machine_special_regs.mtval   <= '0;
+        machine_special_regs.mtvec   <= {30'd0, MTVEC_MODE_DIRECT};
+        privilege_mode               <= PRIVILEGE_MODE_MACHINE;
+    end else if (cpu_ctrl.decode_trap) begin
+        machine_special_regs.mstatus.mie  <= '0;
+        machine_special_regs.mstatus.mpie <= machine_special_regs.mstatus.mie;
+        machine_special_regs.mepc         <= fetch_regs.fetch_pc;
+    end else if (!cpu_ctrl.mem_stall && csr_writeback_en) begin
         case (csr_class_e'(csr_class_bits))
             CSR_CLASS_MACHINE_RW: begin
                 case (csr_machine_rw_offset_e'(csr_offset_bits))
@@ -802,6 +788,32 @@ always_ff @(posedge clk) begin
         endcase
     end else begin
         machine_special_regs <= machine_special_regs;
+    end
+end
+
+///////////////////////////////////////////////////////////////////////////////
+// Stage 5  Writeback
+///////////////////////////////////////////////////////////////////////////////
+logic [31:0] xregs_wb_data;
+
+always_comb begin
+    // Writeback to X-Register File: CSR, JALR, or ALU/Load results
+    if (memory_regs.wb_ctrl.csr_read) begin
+        xregs_wb_data = memory_regs.csr_read_data;
+    end else if (memory_regs.jump_branch_ctrl.is_jump_instr) begin
+        xregs_wb_data = memory_regs.pc_plus4;
+    end else begin
+        xregs_wb_data = memory_regs.writeback_data;
+    end
+end
+
+// X-Register File
+always_ff @(posedge clk) begin
+    if (!cpu_ctrl.mem_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
+        if (memory_regs.wb_ctrl.rd_reg_select != '0) begin
+            // Writeback of ALU result, Load data, or CSR read data
+            x_register_file[memory_regs.wb_ctrl.rd_reg_select] <= xregs_wb_data;
+        end
     end
 end
 

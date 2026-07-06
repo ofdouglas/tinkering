@@ -334,15 +334,17 @@ typedef struct packed {
 } WritebackControls;
 
 typedef struct packed {
-    // Set by Execute stage
-    logic         branch_taken;
-    logic [31:0]  branch_pc;
+    // logic         interrupt_taken;
 
     // Set by Decode stage
     logic         invalid_opcode;
     logic         decode_flush;
     logic         decode_trap;
     logic         exception_return;
+
+    // Set by Execute stage
+    logic         branch_taken;
+    logic [31:0]  branch_pc;
 
     // Set by Memory stage
     logic         mem_stall;
