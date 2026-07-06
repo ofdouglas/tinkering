@@ -14,9 +14,27 @@ typedef enum logic [6:0] {
     OPCODE_STORE    = 7'b0100011,
     OPCODE_IMM_ALU  = 7'b0010011,
     OPCODE_REG_ALU  = 7'b0110011,
-    OPCODE_FENCE    = 7'b0001111,
-    OPCODE_SYSTEM   = 7'b1110011
+    OPCODE_FENCE    = 7'b0001111, // includes PAUSE
+    OPCODE_SYSTEM   = 7'b1110011  
 } opcode_e;
+
+typedef enum logic [2:0] {
+    SYS3_OTHER              = 3'b000,
+    SYS3_CSRRW              = 3'b001,
+    SYS3_CSRRS              = 3'b010,
+    SYS3_CSRRC              = 3'b011,
+    SYS3_RESERVED4          = 3'b100,
+    SYS3_CSRRWI             = 3'b101,
+    SYS3_CSRRSI             = 3'b110,
+    SYS3_CSRRCI             = 3'b111
+} system_funct3_e;
+
+typedef enum logic [11:0] { // instruction[31:20]
+    SYS12_MRET             = 12'h302,
+    SYS12_WFI              = 12'h105,
+    SYS12_ECALL            = 12'h000,
+    SYS12_EBREAK           = 12'h001
+} system_funct12_e;
 
 typedef enum logic [2:0] { // funct_3[2:0]
     ALU_ADD   = 3'b000,
@@ -43,11 +61,12 @@ typedef enum logic [2:0] { // funct_3[2:0]
 } alu_immediate_e;
 localparam logic [2:0] ALU_SRLI = ALU_SRAI; // SRAI shares funct3; imm[11:5] differentiates it.
 
-typedef enum logic [1:0] { // funct_3[1:0]
-    LOGIC_XOR   = 2'b00,
-    LOGIC_LUI   = 2'b01,
-    LOGIC_OR    = 2'b10,
-    LOGIC_AND   = 2'b11
+typedef enum logic [2:0] { // funct_3[1:0]
+    LOGIC_XOR   = 3'b000,
+    LOGIC_LUI   = 3'b001,
+    LOGIC_OR    = 3'b010,
+    LOGIC_AND   = 3'b011,
+    LOGIC_CLEAR = 3'b111   // ~left & right
 } alu_logic_e;
 
 typedef enum logic [0:0] { // funct_3[2]
@@ -58,13 +77,16 @@ typedef enum logic [0:0] { // funct_3[2]
 typedef enum logic [1:0] {
     ALU_LEFT_SRC_PC        = 2'b00,
     ALU_LEFT_SRC_RS1       = 2'b01,
-    ALU_LEFT_SRC_IMM       = 2'b10
+    ALU_LEFT_SRC_IMM       = 2'b10,
+    ALU_LEFT_SRC_ZERO      = 2'b11
 } alu_left_src_e;
 localparam alu_left_src_e ALU_LEFT_SRC_DONT_CARE = ALU_LEFT_SRC_PC;
 
-typedef enum logic [0:0] {
-    ALU_RIGHT_SRC_RS2       = 1'b0,
-    ALU_RIGHT_SRC_IMM       = 1'b1
+typedef enum logic [1:0] {
+    ALU_RIGHT_SRC_RS2       = 2'b00,
+    ALU_RIGHT_SRC_IMM       = 2'b01,
+    ALU_RIGHT_SRC_CSR       = 2'b10,
+    ALU_RIGHT_SRC_ZERO      = 2'b11
 } alu_right_src_e;
 localparam alu_right_src_e ALU_RIGHT_SRC_DONT_CARE = ALU_RIGHT_SRC_RS2;
 
@@ -118,21 +140,9 @@ typedef enum logic [0:0] { // funct_3[2]
     LOAD_UNSIGNED = 1'b1
 } load_signed_e;
 
-typedef enum logic [1:0] {
-    PRIVILEGE_MODE_USER        = 2'b00,
-    PRIVILEGE_MODE_SUPERVISOR  = 2'b01,
-    PRIVILEGE_MODE_RESERVED    = 2'b10,
-    PRIVILEGE_MODE_MACHINE     = 2'b11
-} privilege_mode_e;
-
-typedef enum logic [1:0] {
-    // RW* = read/write (all 3 values are equivalent)
-    CSR_ACCESS_RW0        = 2'b00,
-    CSR_ACCESS_RW1        = 2'b01,
-    CSR_ACCESS_RW2        = 2'b10,
-    // Read-only CSR
-    CSR_ACCESS_READ_ONLY = 2'b11
-} csr_access_type_e;
+///////////////////////////////////////////////////////////////////////////////
+// Exception and Interrupt Enums
+///////////////////////////////////////////////////////////////////////////////
 
 typedef enum logic [4:0] {
     IRQ_SRC_RESERVED0     = 5'd0,
@@ -205,12 +215,33 @@ typedef enum logic [4:0] {
     TRAP_CUSTOM31              = 5'd31
 } trap_type_e;
 
-typedef enum logic [7:0] { // Trap vector base address mode
-    MTVEC_MODE_DIRECT =   8'd0,
-    MTVEC_MODE_VECTORED = 8'd1,
-    MTVEC_MODE_RESERVED = 8'd2
-} mtvec_mode_e;
 
+///////////////////////////////////////////////////////////////////////////////
+// Privileged ISA Enums
+///////////////////////////////////////////////////////////////////////////////
+
+typedef enum logic [1:0] {
+    PRIVILEGE_MODE_USER        = 2'b00,
+    PRIVILEGE_MODE_SUPERVISOR  = 2'b01,
+    PRIVILEGE_MODE_RESERVED    = 2'b10,
+    PRIVILEGE_MODE_MACHINE     = 2'b11
+} privilege_mode_e;
+
+typedef enum logic [1:0] {
+    // RW* = read/write (all 3 values are equivalent)
+    CSR_ACCESS_RW0        = 2'b00,
+    CSR_ACCESS_RW1        = 2'b01,
+    CSR_ACCESS_RW2        = 2'b10,
+    // Read-only CSR
+    CSR_ACCESS_READ_ONLY = 2'b11
+} csr_access_type_e;
+
+typedef enum logic [3:0] { // Upper 4 bits of CSR address
+    CSR_CLASS_MACHINE_RW       = 4'h3,
+    CSR_CLASS_MACHINE_AUX_RW   = 4'h7, // NMI and Debug CSRs
+    CSR_CLASS_MACHINE_TIME     = 4'hB, // Cycle / perf counters
+    CSR_CLASS_MACHINE_INFO     = 4'hF  // Machine information (Read-only)
+} csr_class_e;
 
 typedef enum logic [7:0] { // Lower 8 bits of CSR address
     // Machine trap setup (0x00–0x06, 0x10, 0x12)
@@ -221,8 +252,8 @@ typedef enum logic [7:0] { // Lower 8 bits of CSR address
     CSR_ADDRESS_MIE            = 8'h04,
     CSR_ADDRESS_MTVEC          = 8'h05,
     CSR_ADDRESS_MCOUNTEREN     = 8'h06,
-    CSR_ADDRESS_MSTATUSH       = 8'h10, // RV32 only
-    CSR_ADDRESS_MDELEGH        = 8'h12, // Upper 32 bits of medeleg, RV32 only
+    CSR_ADDRESS_MSTATUSH       = 8'h10,
+    CSR_ADDRESS_MDELEGH        = 8'h12,
 
     // Machine trap handling (0x40–0x44, 0x4A–0x4B)
     CSR_ADDRESS_MSCRATCH       = 8'h40,
@@ -231,15 +262,30 @@ typedef enum logic [7:0] { // Lower 8 bits of CSR address
     CSR_ADDRESS_MTVAL          = 8'h43,
     CSR_ADDRESS_MIP            = 8'h44,
     CSR_ADDRESS_MTINST         = 8'h4A,
-    CSR_ADDRESS_MTVAL2         = 8'h4B,
+    CSR_ADDRESS_MTVAL2         = 8'h4B
+} csr_machine_rw_address_e;
 
+typedef enum logic [7:0] { // Lower 8 bits of CSR address
     // Machine information registers (0x11–0x15)
     CSR_ADDRESS_MVENDORID      = 8'h11,
     CSR_ADDRESS_MARCHID        = 8'h12, // full address 0xF12
     CSR_ADDRESS_MIMPID         = 8'h13,
     CSR_ADDRESS_MHARTID        = 8'h14,
     CSR_ADDRESS_MCONFIGPTR     = 8'h15
-} machine_csr_address_e;
+} csr_machine_info_address_e;
+
+typedef enum logic [7:0] { // Lower 8 bits of CSR address
+    // Machine aux registers (0x41–0x45)
+    CSR_ADDRESS_NMI              = 8'h41,
+    CSR_ADDRESS_DEBUG_BASE       = 8'h42,
+    CSR_ADDRESS_DEBUG_END        = 8'h43
+} csr_machine_aux_address_e;
+
+typedef enum logic [1:0] { // Trap vector base address mode
+    MTVEC_MODE_DIRECT =   2'd0,
+    MTVEC_MODE_VECTORED = 2'd1,
+    MTVEC_MODE_RESERVED = 2'd2
+} mtvec_mode_e;
 
 
 typedef struct packed {
@@ -264,8 +310,8 @@ typedef struct packed {
     // Special functions
     adder_ctrl_e    adder_ctrl;
     shift_sign_e    shift_sign_ctrl;
+    alu_logic_e     logic_ctrl;
     logic           is_unsigned;
-    logic           is_lui_instr;
 } AluControls;
 
 typedef struct packed {
@@ -281,10 +327,12 @@ typedef struct packed {
 } MemoryControls;
 
 typedef struct packed {
-    logic writeback_en;
-    logic [4:0] rd_reg_select;
+    logic        writeback_en;
+    logic [4:0]  rd_reg_select;
+    logic        csr_read;
+    logic        csr_writeback_en;
+    logic [11:0] csr_address;
 } WritebackControls;
-
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -308,6 +356,7 @@ typedef struct packed {
     logic [31:0]       rs2_reg;
     logic [31:0]       current_pc;
     logic [31:0]       immediate;
+    logic [31:0]       csr_read;
     logic  [4:0]       rs1_index;
     logic  [4:0]       rs2_index;
 
@@ -318,14 +367,14 @@ typedef struct packed {
     JumpBranchControls jump_branch_ctrl;
     MemoryControls     mem_ctrl;
     WritebackControls  wb_ctrl;
+    logic              csr_instruction;
     logic              invalid_opcode;
-    logic              nop_instruction;
 } DecodeStageRegs;
 
 typedef struct packed {
     // Datapath
-    logic [31:0]       exec_result;
-    logic [31:0]       rs2_reg;
+    logic [31:0]       exec_result; // Address, or WB data for main datapath or CSRs
+    logic [31:0]       rs2_csr_reg;     // Memory store data, or CSR read -> x-registers
     logic [31:0]       current_pc;
     logic  [4:0]       rs2_index;
 
@@ -345,6 +394,7 @@ typedef struct packed {
 typedef struct packed {
     // Datapath
     logic [31:0]       writeback_data;
+    logic [31:0]       csr_read_data;
     logic [31:0]       pc_plus4;
 
     // Control path
@@ -378,6 +428,13 @@ typedef struct packed {
     privilege_mode_e mpp;  // Bits 12:11: Machine Previous Privilege
 } mstatus_csr_t;
 
+typedef struct packed {
+    logic [1:0]      mxl;         // Machine X-Len (Word size of the processor)
+    logic [25:0]     extensions;  // ISA Extensions supported
+} misa_csr_t;
+
+localparam logic [31:0] MISA_VALUE = {2'b01, 22'd0, 1'b1, 7'd0};  // RV32I (bit 8)
+
 typedef struct packed { 
     logic [31:0] mepc;  // Machine Exception Program Counter (faulting instruction address if sync)
                         // interrupted instruction if async (ex: external interrupt)
@@ -394,5 +451,15 @@ typedef struct packed {
 } mtval_csr_t;
 
 
+
+typedef struct packed {
+    // mstatus_csr_t    mstatus;
+    mie_csr_t        mie;
+    mip_csr_t        mip;
+    mtvec_csr_t      mtvec;
+    // mepc_csr_t       mepc;
+    // mcause_csr_t     mcause;
+    // mtval_csr_t      mtval;
+} MachineSpecialRegs;
 
 endpackage

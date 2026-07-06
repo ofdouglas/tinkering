@@ -1,4 +1,4 @@
-ASM_TESTS := basic_alu pipelined_alu alu_boundary branch load_store load_use jump_lui_auipc
+ASM_TESTS := basic_alu pipelined_alu alu_boundary branch load_store load_use jump_lui_auipc csr
 C_TESTS   := crc store_hazard
 TESTS     := $(ASM_TESTS) $(C_TESTS)
 
