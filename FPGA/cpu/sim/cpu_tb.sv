@@ -26,6 +26,12 @@ module cpu_tb;
     logic [31:0] rd_data;
     logic wr_ack;
     logic error;
+    logic ext_irq;
+    bit irq_test = 1'b0;
+    bit irq_armed = 1'b0;
+    bit irq_done = 1'b0;
+    int unsigned irq_settle_cycles = 0;
+    localparam logic [31:0] IRQ_WAIT_PC = 32'h0000_003c;
 
     logic [31:0] instruction_rom [0:ROM_WORDS-1];
     logic [31:0] expected_registers [0:NUM_REGS-1];
@@ -83,7 +89,8 @@ module cpu_tb;
         .rd_valid (rd_valid),
         .rd_data (rd_data),
         .wr_ack (wr_ack),
-        .error (error)
+        .error (error),
+        .ext_irq (ext_irq)
     );
 
     task automatic try_load_rom(input string rom_path, output bit loaded);
@@ -325,14 +332,51 @@ module cpu_tb;
         end
     end
 
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            ext_irq <= 1'b0;
+            irq_armed <= 1'b0;
+            irq_done <= 1'b0;
+            irq_settle_cycles <= 0;
+        end else if (irq_test) begin
+            // TODO: refactor this to be more flexible
+            if (!irq_armed &&
+                dut.x_register_file[18] == 32'h0000_010d &&
+                dut.fetch_regs.current_pc == IRQ_WAIT_PC) begin
+                irq_armed <= 1'b1;
+                ext_irq <= 1'b1;
+            end else begin
+                ext_irq <= 1'b0;
+            end
+
+            if (irq_armed && dut.x_register_file[9] == 32'h0000_00FF) begin
+                irq_done <= 1'b1;
+            end
+
+            if (irq_done) begin
+                irq_settle_cycles <= irq_settle_cycles + 1;
+            end
+        end else begin
+            ext_irq <= 1'b0;
+        end
+    end
+
     initial begin
         #0; // let plusarg/config initial block run first
+        irq_test = $test$plusargs("CPUTEST_IRQ");
         rst_n = 1'b0;
+        ext_irq = 1'b0;
         repeat (4) @(posedge clk);
         @(negedge clk);
         rst_n = 1'b1;
 
-        repeat (run_cycles) @(posedge clk);
+        if (irq_test) begin
+            while (!irq_done) @(posedge clk);
+            while (irq_settle_cycles < 200) @(posedge clk);
+        end else begin
+            repeat (run_cycles) @(posedge clk);
+        end
+
         check_cputest_registers();
         check_cputest_sram();
         if (!test_failed) begin

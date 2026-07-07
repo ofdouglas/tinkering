@@ -18,6 +18,7 @@ SIM_BIN := $(SIM_DIR)/Vcpu_tb
 MEM_LATENCY ?=
 CYCLES ?=
 VERBOSE ?= 0
+IRQ ?= 0
 RTL_SRCS := $(CPU_DIR)/rtl/rv32defs.sv \
             $(CPU_DIR)/rtl/rv32cpu.sv \
             $(CPU_DIR)/rtl/bus_interface.sv \
@@ -54,6 +55,7 @@ sim: build $(SIM_BIN)
 		[ -n "$(MEM_LATENCY)" ] && extra="$$extra +CPUTEST_MEM_LATENCY=$(MEM_LATENCY)"; \
 		[ -n "$(CYCLES)" ] && extra="$$extra +CPUTEST_CYCLES=$(CYCLES)"; \
 		[ "$(VERBOSE)" = "1" ] && extra="$$extra +CPUTEST_VERBOSE"; \
+		[ "$$t" = "trap" ] && extra="$$extra +CPUTEST_IRQ"; \
 		if [ "$(VERBOSE)" = "1" ]; then \
 			echo "=== cputest [$$n/$$total]: $$t ==="; \
 			if $(SIM_BIN) +CPUTEST_HEX=$(MEM_DIR)/$$t.hex +CPUTEST_EXPECTED=$(MEM_DIR)/$$t.expected $$extra; then \

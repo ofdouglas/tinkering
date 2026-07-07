@@ -141,7 +141,7 @@ typedef enum logic [0:0] { // funct_3[2]
 } load_signed_e;
 
 ///////////////////////////////////////////////////////////////////////////////
-// Exception and Interrupt Enums
+// mcause codes (RISC-V privileged ISA, bits 4:0; bit 31 = interrupt)
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef enum logic [4:0] {
@@ -215,6 +215,10 @@ typedef enum logic [4:0] {
     TRAP_CUSTOM31              = 5'd31
 } trap_type_e;
 
+
+function automatic logic [31:0] write_mcause(logic is_interrupt, logic [4:0] code);
+    return {is_interrupt, 26'd0, code};
+endfunction
 
 ///////////////////////////////////////////////////////////////////////////////
 // Privileged ISA Enums

@@ -7,6 +7,7 @@ module rv32cpu(
     input  logic [31 : 0]       instruction_fetch,
     output logic [31 : 2]       fetch_addr,
     input  logic                fetch_valid,
+    input  logic                ext_irq,
 
     // CPU -> Bus Request
     output logic                valid,
@@ -39,20 +40,29 @@ MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 ///////////////////////////////////////////////////////////////////////////////
 CpuControl         cpu_ctrl;
 
+logic external_interrupt;
+assign external_interrupt = ext_irq &&
+                            machine_special_regs.mstatus.mie &&
+                            machine_special_regs.mie.mei_enable;
+
+logic exception_entry;
+assign exception_entry = cpu_ctrl.decode_trap || external_interrupt || cpu_ctrl.invalid_opcode;
+
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 1: Instruction Fetch
 ///////////////////////////////////////////////////////////////////////////////
 logic [31:0] next_pc, pc_plus4;
 logic instruction_flush;
 
-assign instruction_flush = cpu_ctrl.decode_trap || cpu_ctrl.exception_return || (decode_regs.valid && cpu_ctrl.branch_taken);
+
+assign instruction_flush = external_interrupt || cpu_ctrl.decode_trap || cpu_ctrl.exception_return || (decode_regs.valid && cpu_ctrl.branch_taken);
 
 // Address generation
 always_comb begin
     fetch_addr = fetch_regs.current_pc[31:2];
     pc_plus4 = fetch_regs.current_pc + 32'd4;
 
-    if (cpu_ctrl.decode_trap) begin
+    if (exception_entry) begin
         next_pc = {machine_special_regs.mtvec.base, 2'b00};
     end else if (cpu_ctrl.exception_return) begin
         next_pc = machine_special_regs.mepc;
@@ -735,6 +745,21 @@ end
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 4B: Special Registers
 ///////////////////////////////////////////////////////////////////////////////
+logic [31:0] mcause_data;
+
+// Determine trap type for mcause
+always_comb begin
+    // TODO: handle other trap types
+    if (cpu_ctrl.decode_trap) begin
+        mcause_data = write_mcause(0, TRAP_ECALL_M);
+    end else if (cpu_ctrl.invalid_opcode) begin
+        mcause_data = write_mcause(0, TRAP_ILLEGAL_INST);
+    end else if (external_interrupt) begin
+        mcause_data = write_mcause(1, IRQ_SRC_MEI);
+    end else begin
+        mcause_data = machine_special_regs.mcause;
+    end
+end
 
 // Special Registers
 always_ff @(posedge clk) begin
@@ -757,10 +782,14 @@ always_ff @(posedge clk) begin
         machine_special_regs.mtval   <= '0;
         machine_special_regs.mtvec   <= {30'd0, MTVEC_MODE_DIRECT};
         privilege_mode               <= PRIVILEGE_MODE_MACHINE;
-    end else if (cpu_ctrl.decode_trap) begin
+    end else if (cpu_ctrl.exception_return) begin
+        machine_special_regs.mstatus.mie  <= machine_special_regs.mstatus.mpie;
+        machine_special_regs.mstatus.mpie <= 1'b1;
+    end else if (exception_entry) begin
         machine_special_regs.mstatus.mie  <= '0;
         machine_special_regs.mstatus.mpie <= machine_special_regs.mstatus.mie;
         machine_special_regs.mepc         <= fetch_regs.fetch_pc;
+        machine_special_regs.mcause       <= mcause_data;
     end else if (!cpu_ctrl.mem_stall && csr_writeback_en) begin
         case (csr_class_e'(csr_class_bits))
             CSR_CLASS_MACHINE_RW: begin
