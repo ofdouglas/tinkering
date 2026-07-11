@@ -9,7 +9,6 @@ module reset_control(
 
 localparam int RESET_CYCLES = 8;
 logic [$clog2(RESET_CYCLES + 1) - 1:0] reset_cnt = '0;
-logic rst_n;
 
 always_ff @(posedge clk) begin
     if (reset_cnt < RESET_CYCLES) begin

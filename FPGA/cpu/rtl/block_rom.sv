@@ -1,8 +1,9 @@
-module block_rom (
+module block_rom #(
+    parameter int WORD_ADDR_BITS = 16
+) (
     bus_slave_interface.slave bus
 );
 
-localparam int WORD_ADDR_BITS = $bits(bus.addr);
 localparam int NUM_WORDS = 2 ** WORD_ADDR_BITS;
 
 (* rom_style = "block" *)
@@ -28,16 +29,31 @@ always_ff @(posedge bus.clk) begin
 end
 
 initial begin
-    // xsim cwd is cpu.sim/sim_1/behav/xsim — firmware.hex must be copied there (see scripts/sim.tcl)
-    $readmemh("firmware.hex", rom_word_array);
-    if (rom_word_array[0] === 'x) begin
-        $readmemh("../../../../../cpu/mem/firmware.hex", rom_word_array);
-    end
-    if (rom_word_array[0] === 'x) begin
-        $fatal(1, "block_rom: could not load firmware.hex — run make in firmware/ and copy hex for sim");
+    string rom_path;
+    int rom_fd;
+
+    if (!$value$plusargs("FIRMWARE_HEX=%s", rom_path)) begin
+        rom_path = "firmware.hex";
+        rom_fd = $fopen(rom_path, "r");
+        if (rom_fd == 0) begin
+            rom_path = "mem/firmware.hex";
+            rom_fd = $fopen(rom_path, "r");
+        end
+        if (rom_fd == 0) begin
+            // xsim cwd is cpu.sim/sim_1/behav/xsim.
+            rom_path = "../../../../../cpu/mem/firmware.hex";
+            rom_fd = $fopen(rom_path, "r");
+        end
     end else begin
-        $display("block_rom: loaded %0d words, [0]=0x%08x", NUM_WORDS, rom_word_array[0]);
+        rom_fd = $fopen(rom_path, "r");
     end
+
+    if (rom_fd == 0) begin
+        $fatal(1, "block_rom: could not load firmware hex — run make in firmware/ and pass +FIRMWARE_HEX=<path> if needed");
+    end
+    $fclose(rom_fd);
+    $readmemh(rom_path, rom_word_array);
+    $display("block_rom: loaded %s, %0d words, [0]=0x%08x", rom_path, NUM_WORDS, rom_word_array[0]);
 end
 
 endmodule

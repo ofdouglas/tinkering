@@ -19,9 +19,51 @@ block_rom cpu_rom (
     .bus(rom_bus.slave)
 );
 
+localparam int ROM_WORD_ADDR_BITS = MEMORY_ADDR_MSB - 1;
+localparam int ROM_WORDS = 2 ** ROM_WORD_ADDR_BITS;
+localparam logic [31:0] NOP_INSTRUCTION = 32'h0000_0013;
+
+logic [31:0] instruction_rom [0:ROM_WORDS-1];
+logic [31:0] instruction_fetch;
+logic [31:2] fetch_addr;
+logic fetch_valid;
+logic fetch_in_range;
+logic [ROM_WORD_ADDR_BITS-1:0] fetch_word_addr;
+
+assign fetch_word_addr = fetch_addr[MEMORY_ADDR_MSB:2];
+assign fetch_in_range = (fetch_addr[31:MEMORY_ADDR_MSB+1] == '0);
+assign instruction_fetch = fetch_in_range ? instruction_rom[fetch_word_addr] : NOP_INSTRUCTION;
+assign fetch_valid = rst_n && fetch_in_range;
+
+initial begin
+    string rom_path;
+    int rom_fd;
+
+    if (!$value$plusargs("FIRMWARE_HEX=%s", rom_path)) begin
+        rom_path = "firmware.hex";
+        rom_fd = $fopen(rom_path, "r");
+        if (rom_fd == 0) begin
+            rom_path = "mem/firmware.hex";
+            rom_fd = $fopen(rom_path, "r");
+        end
+        if (rom_fd == 0) begin
+            rom_path = "../../../../../cpu/mem/firmware.hex";
+            rom_fd = $fopen(rom_path, "r");
+        end
+    end else begin
+        rom_fd = $fopen(rom_path, "r");
+    end
+
+    if (rom_fd == 0) begin
+        $fatal(1, "system: could not load firmware hex; run make in firmware/ and pass +FIRMWARE_HEX=<path> if needed");
+    end
+    $fclose(rom_fd);
+    $readmemh(rom_path, instruction_rom);
+end
+
 // Data RAM for the CPU
 bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) sram_bus();
-block_sram cpu_sram (
+block_sram #(.WORD_ADDR_BITS(MEMORY_ADDR_MSB-1)) cpu_sram (
     .bus(sram_bus.slave)
 );
 
@@ -42,12 +84,16 @@ uart_periph uart0 (
     .uart_rx_in(uart_rx_in)
 );
 
-// System bus. address_bus[19:0] is used. [19:16] select regions
+// System bus. address_bus[31:28] selects regions
 logic [31:0] address_bus;
+logic [31:2] cpu_word_address;
 logic [31:0] data_read_bus;
 logic [31:0] data_write_bus;
 logic [ 3:0] byte_enables;
 logic memory_access_valid;
+logic memory_rd_valid;
+logic memory_wr_ack;
+logic memory_access_error;
 logic cpu_request;
 logic cpu_trap;
 logic rom_trap;
@@ -55,6 +101,7 @@ logic unaligned_write_trap;
 
 logic is_write;
 assign is_write = |byte_enables;
+assign address_bus = {cpu_word_address, 2'b00};
 
 always_comb begin
     logic aligned_write;
@@ -74,37 +121,44 @@ always_comb begin
 end
 
 logic [3:0] region;
-assign region = address_bus[19:16];
+assign region = address_bus[REGION_BITS_MSB:REGION_BITS_LSB];
 
 logic region_rom, region_ram, region_led, region_uart;
-assign region_rom  = (region == REGION_ROM);
-assign region_ram  = (region == REGION_RAM);
-assign region_led  = (region == REGION_LED);
-assign region_uart = (region == REGION_UART);
+assign region_rom  = (region == REGION_BOOT_ROM);
+assign region_ram  = (region == REGION_SHARED_RAM);
+assign region_led  = (region == REGION_PERIPH) && (address_bus[PERIPH_ADDR_MSB+1] == 1'b0);
+assign region_uart = (region == REGION_PERIPH) && (address_bus[PERIPH_ADDR_MSB+1] == 1'b1);
 
 always_comb begin
-    unique case (region)
-        REGION_ROM : memory_access_valid = !is_write && rom_bus.rd_valid;
-        REGION_RAM : memory_access_valid = is_write ? sram_bus.wr_ack : sram_bus.rd_valid;
-        REGION_LED : memory_access_valid = is_write ? gpio_bus.wr_ack : gpio_bus.rd_valid;
-        REGION_UART : memory_access_valid = is_write ? uart_bus.wr_ack : uart_bus.rd_valid;
-        default : memory_access_valid = 0;
-    endcase
+    memory_access_valid = 1'b0;
+    memory_rd_valid = 1'b0;
+    memory_wr_ack = 1'b0;
+    if (region_rom) begin
+        memory_rd_valid = rom_bus.rd_valid;
+    end else if (region_ram) begin
+        memory_rd_valid = sram_bus.rd_valid;
+        memory_wr_ack = sram_bus.wr_ack;
+    end else if (region_led) begin
+        memory_rd_valid = gpio_bus.rd_valid;
+        memory_wr_ack = gpio_bus.wr_ack;
+    end else if (region_uart) begin
+        memory_rd_valid = uart_bus.rd_valid;
+        memory_wr_ack = uart_bus.wr_ack;
+    end
+    memory_access_valid = is_write ? memory_wr_ack : memory_rd_valid;
 end
 
 // Read bus multiplexing
 always_comb begin
     data_read_bus = '0;
-    if (cpu_request && !is_write) begin
-       unique case (region)
-            REGION_ROM  : data_read_bus = rom_bus.rd_data;
-            REGION_RAM  : data_read_bus = sram_bus.rd_data;
-            REGION_LED  : data_read_bus = gpio_bus.rd_data;
-            REGION_UART : data_read_bus = uart_bus.rd_data;
-            default     : data_read_bus = '0;
-        endcase
-    end else begin
-        data_read_bus = '0;
+    if (region_rom) begin
+        data_read_bus = rom_bus.rd_data;
+    end else if (region_ram) begin
+        data_read_bus = sram_bus.rd_data;
+    end else if (region_led) begin
+        data_read_bus = gpio_bus.rd_data;
+    end else if (region_uart) begin
+        data_read_bus = uart_bus.rd_data;
     end
 end
 
@@ -138,36 +192,28 @@ assign uart_bus.wr_strobe = byte_enables;
 assign uart_bus.wr_data = data_write_bus;
 assign uart_bus.addr = address_bus[PERIPH_ADDR_MSB:2];
 
+assign memory_access_error = cpu_request &&
+                             (unaligned_write_trap ||
+                              (region_rom && is_write) ||
+                              !(region_rom || region_ram || region_led || region_uart));
+assign cpu_trap = memory_access_error || rom_trap;
 
- picorv32 cpu(
-    .clk(clk),
-    .resetn(rst_n),
-    .trap(cpu_trap),
-    .mem_valid(cpu_request),
-    .mem_instr(),
-    .mem_ready(memory_access_valid),
-    .mem_addr(address_bus),
-    .mem_wdata(data_write_bus),
-    .mem_wstrb(byte_enables),
-    .mem_rdata(data_read_bus),
-    .mem_la_read(),
-    .mem_la_write(),
-    .mem_la_addr(),
-    .mem_la_wdata(),
-    .mem_la_wstrb(),
-    .pcpi_valid(),
-    .pcpi_insn(),
-    .pcpi_rs1(),
-    .pcpi_rs2(),
-    .pcpi_wr(),
-    .pcpi_rd(),
-    .pcpi_wait(),
-    .pcpi_ready(),
-    .irq('0),
-    .eoi(),
-    .trace_valid(),
-    .trace_data()
- );
+rv32cpu cpu(
+    .clk               (clk),
+    .rst_n             (rst_n),
+    .instruction_fetch (instruction_fetch),
+    .fetch_addr        (fetch_addr),
+    .fetch_valid       (fetch_valid),
+    .ext_irq           (1'b0),
+    .valid             (cpu_request),
+    .wr_strobe         (byte_enables),
+    .wr_data           (data_write_bus),
+    .addr              (cpu_word_address),
+    .rd_valid          (memory_rd_valid),
+    .rd_data           (data_read_bus),
+    .wr_ack            (memory_wr_ack),
+    .error             (memory_access_error)
+);
 
 endmodule
 

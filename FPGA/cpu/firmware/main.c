@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "mem_map.h"
 
 
 void delay_loop(const uint32_t count) {
@@ -10,9 +11,9 @@ void delay_loop(const uint32_t count) {
 
 
 void uart_send_string(const char* str, const uint32_t length) {
-    volatile uint32_t* const UartStatusReg = (volatile uint32_t*)0x00030000;
-    volatile uint32_t* const UartTxDataReg = (volatile uint32_t*)0x00030004;
-    volatile uint32_t* const UartRxDataReg = (volatile uint32_t*)0x00030008;
+    volatile uint32_t* const UartStatusReg = (volatile uint32_t*)UART_BASE;
+    volatile uint32_t* const UartTxDataReg = (volatile uint32_t*)(UART_BASE + 4U);
+    volatile uint32_t* const UartRxDataReg = (volatile uint32_t*)(UART_BASE + 8U);
 
     for (uint32_t i = 0U; i < length; i++) {
         for (uint32_t j = 0U; j < 10000U; j++) { // wait for TX ready (bit 0)
@@ -26,7 +27,7 @@ void uart_send_string(const char* str, const uint32_t length) {
 
 int main(void) {
 
-    volatile uint32_t* const LedRegister = (volatile uint32_t*)0x00020000;
+    volatile uint32_t* const LedRegister = (volatile uint32_t*)LED_BASE;
 
     const char* const kHelloMsg = "Hello!\n";
     const uint32_t kHelloMsgLen = 7U;

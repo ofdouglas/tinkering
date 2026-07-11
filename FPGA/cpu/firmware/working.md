@@ -1,6 +1,6 @@
 # CPU firmware — test gaps & next steps
 
-Initial asm/C suite lives in `cputest/`. Run: `make -C cputest sim`.
+Initial asm/C CPU verification suite lives in `../test-fw/`. Run: `make -C ../test-fw sim`.
 
 ## cputest coverage (done)
 
@@ -9,10 +9,11 @@ Initial asm/C suite lives in `cputest/`. Run: `make -C cputest sim`.
 - Load-use stalls (incl. lh/lhu/sh, back-to-back loads), branch + load-use, pipelined ALU forwarding
 - C smoke: CRC32, compiler store regression (`store_hazard`)
 - CSR read/write (`csr_basic`, `csr_immediate`, `csr_mixed`): CSRRW/CSRRS/CSRRC and CSRRWI/CSRRSI/CSRRCI on implemented CSRs; load-use and ALU→CSR operand hazards, CSR rd→branch/store/CSR-rs1, CSR WB + load-use overlap, immediate/register CSR mix
-- Spike ISA cross-check: `make spike-ref` in `cputest/` (RV32I asm tests vs `.expected`; skips CSR and PC-at-0x0 tests — see `SPIKE_SKIP_TESTS` in `tests.mk`)
+- Spike ISA cross-check: `make spike-ref` in `../test-fw/` (RV32I asm tests vs `expected/*.regs`; skips CSR/trap tests where Spike is not the intended reference — see `SPIKE_SKIP_TESTS` in `tests.mk`)
 
 ## Gaps to close (asm / sim)
 
+- **ISR injection more flexible / less brittle** - 
 - **Control** — invalid-opcode flush (when RTL handles it)
 - **Multi-cycle memory** — run key tests with `MEM_LATENCY>1`;
 - **C harness** — check `x30`/`x31` on C tests (ASSERT path in `assert.h`); optional SRAM “done” word instead of fixed cycle count

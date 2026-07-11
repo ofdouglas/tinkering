@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+import cpu_config_pkg::*;
 
 module cpu_tb;
 
@@ -8,8 +9,11 @@ module cpu_tb;
     localparam int DATA_ADDR_BITS = 10; // 4 KiB data SRAM, matches cpu_config_pkg
     localparam int SRAM_WORDS = 2 ** DATA_ADDR_BITS;
     localparam int NUM_REGS = 32;
-    localparam logic [3:0] REGION_ROM = 4'h0;
-    localparam logic [3:0] REGION_RAM = 4'h1;
+    localparam logic [31:0] TEST_ROM_BASE = 32'h0001_0000;
+    localparam logic [31:0] TEST_RAM_BASE = 32'h1000_0000;
+    localparam logic [31:0] TEST_ROM_END = TEST_ROM_BASE + (ROM_WORDS * 4);
+    localparam logic [31:0] TEST_RAM_END = TEST_RAM_BASE + (SRAM_WORDS * 4);
+    localparam logic [31:2] TEST_ROM_WORD_BASE = TEST_ROM_BASE[31:2];
     localparam logic [31:0] NOP_INSTRUCTION = 32'h0000_0013;
 
     logic clk;
@@ -35,7 +39,7 @@ module cpu_tb;
     bit irq_armed = 1'b0;
     bit irq_done = 1'b0;
     int unsigned irq_settle_cycles = 0;
-    localparam logic [31:0] IRQ_WAIT_PC = 32'h0000_003c;
+    localparam logic [31:0] IRQ_WAIT_PC = TEST_ROM_BASE + 32'h0000_003c;
 
     logic [31:0] instruction_rom [0:ROM_WORDS-1];
     logic [31:0] expected_registers [0:NUM_REGS-1];
@@ -48,6 +52,7 @@ module cpu_tb;
     int unsigned mem_latency = 1;
     int unsigned run_cycles = 20000;
     logic [ROM_ADDR_BITS-1:0] rom_word_addr;
+    logic [31:2] fetch_rom_word_offset;
     logic fetch_in_range;
     logic rom_busy;
 
@@ -71,25 +76,37 @@ module cpu_tb;
         .bus(sram_bus.slave)
     );
 
-    assign rom_word_addr = fetch_addr[ROM_ADDR_BITS+1:2];
-    assign fetch_in_range = (fetch_addr[31:ROM_ADDR_BITS+2] == '0);
+    assign fetch_rom_word_offset = fetch_addr - TEST_ROM_WORD_BASE;
+    assign rom_word_addr = fetch_rom_word_offset[ROM_ADDR_BITS+1:2];
+    assign fetch_in_range = ({fetch_addr, 2'b00} >= TEST_ROM_BASE) && ({fetch_addr, 2'b00} < TEST_ROM_END);
     assign instruction_fetch = fetch_in_range ? instruction_rom[rom_word_addr] : NOP_INSTRUCTION;
     assign fetch_valid = rst_n && fetch_in_range && !rom_busy;
 
-    /* CPU read from SRAM, or ROM (stalls instruction fetch) */
+    /* CPU read from SRAM, Peripherals, or ROM (stalls instruction fetch) */
     always_comb begin
         logic [ROM_ADDR_BITS-1:0] rom_word_addr;
-        rom_word_addr = addr[ROM_ADDR_BITS+1:2];
+        logic [31:2] rom_word_offset;
+        logic [31:0] byte_addr;
+        rom_word_offset = addr - TEST_ROM_WORD_BASE;
+        rom_word_addr = rom_word_offset[ROM_ADDR_BITS+1:2];
+        byte_addr = {addr, 2'b00};
 
         invalid_region = 1'b0;
-        case (addr[19:16])
-            REGION_ROM: begin
+        invalid_addr = 1'b0;
+        case (addr[cpu_config_pkg::REGION_BITS_MSB:cpu_config_pkg::REGION_BITS_LSB])
+            cpu_config_pkg::REGION_BOOT_ROM: begin
                 rd_data = instruction_rom[rom_word_addr];
                 invalid_region = |wr_strobe;
+                invalid_addr = (byte_addr < TEST_ROM_BASE) || (byte_addr >= TEST_ROM_END);
                 rom_busy = valid ? 1'b1 : 1'b0;
             end
-            REGION_RAM: begin
+            cpu_config_pkg::REGION_SHARED_RAM: begin
                 rd_data = sram_rd_data;
+                invalid_addr = (byte_addr < TEST_RAM_BASE) || (byte_addr >= TEST_RAM_END);
+                rom_busy = 1'b0;
+            end
+            cpu_config_pkg::REGION_PERIPH: begin
+                rd_data = '0;
                 rom_busy = 1'b0;
             end
             default: begin
@@ -99,12 +116,11 @@ module cpu_tb;
             end
         endcase
 
-        invalid_addr = (addr[31:20] != '0) || (addr[15:DATA_ADDR_BITS+2] != '0);
         error = valid && (invalid_addr || invalid_region);
     end
 
 
-    rv32cpu dut (
+    rv32cpu #(.RESET_PC(TEST_ROM_BASE)) dut (
         .clk         (clk),
         .rst_n       (rst_n),
         .instruction_fetch (instruction_fetch),
@@ -217,7 +233,7 @@ module cpu_tb;
         end
 
         if (!rom_loaded) begin
-            $fatal(1, $sformatf("cpu_tb: could not load %s; run make cputest in firmware/", base_file_name));
+            $fatal(1, $sformatf("cpu_tb: could not load %s; run make sim in cpu/test-fw/", base_file_name));
         end
 
         verbose = $test$plusargs("CPUTEST_VERBOSE");
@@ -227,23 +243,23 @@ module cpu_tb;
         if ($value$plusargs("CPUTEST_EXPECTED=%s", expected_path)) begin
             try_load_expected(expected_path, expected_loaded);
         end else begin
-            try_load_expected("cputest.expected", expected_loaded);
+            try_load_expected("cputest.regs", expected_loaded);
             if (!expected_loaded) begin
-                try_load_expected("mem/cputest.expected", expected_loaded);
+                try_load_expected("mem/cputest.regs", expected_loaded);
             end
             if (!expected_loaded) begin
-                try_load_expected("../mem/cputest.expected", expected_loaded);
+                try_load_expected("../mem/cputest.regs", expected_loaded);
             end
             if (!expected_loaded) begin
-                try_load_expected("../../../../../cpu/mem/cputest.expected", expected_loaded);
+                try_load_expected("../../../../../cpu/mem/cputest.regs", expected_loaded);
             end
             if (!expected_loaded) begin
-                try_load_expected("../../../../../../cpu/mem/cputest.expected", expected_loaded);
+                try_load_expected("../../../../../../cpu/mem/cputest.regs", expected_loaded);
             end
         end
 
         if (!expected_loaded) begin
-            $fatal(1, "cpu_tb: could not load cputest.expected; run make cputest in firmware/");
+            $fatal(1, "cpu_tb: could not load cputest.regs; run make sim in cpu/test-fw/");
         end
 
         if ($test$plusargs("CPUTEST_SKIP_REGS")) begin
@@ -277,29 +293,29 @@ module cpu_tb;
         if ($value$plusargs("CPUTEST_SRAM_EXPECTED=%s", expected_path)) begin
             try_load_sram_expected(expected_path, sram_expected_loaded);
         end else if ($value$plusargs("CPUTEST_EXPECTED=%s", expected_path)) begin
-            try_load_sram_expected(replace_suffix(expected_path, ".expected", ".sram.expected"), sram_expected_loaded);
+            try_load_sram_expected(replace_suffix(expected_path, ".regs", ".sram"), sram_expected_loaded);
         end else begin
-            try_load_sram_expected("cputest.sram.expected", sram_expected_loaded);
+            try_load_sram_expected("cputest.sram", sram_expected_loaded);
             if (!sram_expected_loaded) begin
-                try_load_sram_expected("mem/cputest.sram.expected", sram_expected_loaded);
+                try_load_sram_expected("mem/cputest.sram", sram_expected_loaded);
             end
             if (!sram_expected_loaded) begin
-                try_load_sram_expected("../mem/cputest.sram.expected", sram_expected_loaded);
+                try_load_sram_expected("../mem/cputest.sram", sram_expected_loaded);
             end
             if (!sram_expected_loaded) begin
-                try_load_sram_expected("../../../../../cpu/mem/cputest.sram.expected", sram_expected_loaded);
+                try_load_sram_expected("../../../../../cpu/mem/cputest.sram", sram_expected_loaded);
             end
             if (!sram_expected_loaded) begin
-                try_load_sram_expected("../../../../../../cpu/mem/cputest.sram.expected", sram_expected_loaded);
+                try_load_sram_expected("../../../../../../cpu/mem/cputest.sram", sram_expected_loaded);
             end
         end
     end
 
     function automatic logic [31:0] rom_insn_at(input logic [31:0] pc);
-        if (pc[31:ROM_ADDR_BITS+2] != '0) begin
+        if (pc < TEST_ROM_BASE || pc >= TEST_ROM_END) begin
             return 32'h0000_0013;
         end
-        return instruction_rom[pc[ROM_ADDR_BITS+1:2]];
+        return instruction_rom[(pc - TEST_ROM_BASE) >> 2];
     endfunction
 
     task automatic dump_cpu_state;
@@ -456,7 +472,7 @@ module cpu_tb;
     always_ff @(posedge clk) begin
         if (rst_n && valid && (invalid_addr || invalid_region)) begin
             fail($sformatf(
-                "data bus access out of range: addr=0x%08x wr_strobe=0x%x wr_data=0x%08x (valid regions are ROM 0x00000000-0x00000fff and RAM 0x00010000-0x00010fff)",
+                "data bus access out of range: addr=0x%08x wr_strobe=0x%x wr_data=0x%08x (valid regions are ROM 0x00010000-0x00010fff and RAM 0x10000000-0x10000fff)",
                 {addr, 2'b00}, wr_strobe, wr_data));
         end
     end

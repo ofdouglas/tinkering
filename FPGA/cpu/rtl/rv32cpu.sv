@@ -1,6 +1,8 @@
 import RiscV_32_Definitions::*;
 
-module rv32cpu(
+module rv32cpu #(
+    parameter logic [31:0] RESET_PC = 32'h0000_0000
+) (
     input  logic                clk,
     input  logic                rst_n,
 
@@ -77,6 +79,8 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         fetch_regs <= '0;
+        fetch_regs.current_pc <= RESET_PC;
+        fetch_regs.fetch_pc <= RESET_PC;
     end else if (!cpu_ctrl.decode_flush && !cpu_ctrl.mem_stall) begin
         fetch_regs.unaligned_pc <= next_pc[1:0] != '0;
 
