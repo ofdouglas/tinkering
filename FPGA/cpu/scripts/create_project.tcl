@@ -49,20 +49,33 @@ reorder_files -of_objects $fs -after [get_files -quiet [file join $rtl_dir bus_i
 
 update_compile_order -fileset sources_1
 
-set hex_file [file join $cpu_root mem firmware.hex]
-if {[file exists $hex_file]} {
-    add_files -norecurse $hex_file
-    set hex_obj [get_files -quiet [file tail $hex_file]]
-    set_property file_type {Memory Initialization Files} $hex_obj
-    set_property USED_IN_SIMULATION 1 $hex_obj
-    set_property USED_IN_SYNTHESIS 1 $hex_obj
+set mem_dir [file join $cpu_root mem]
+set firmware_hex [file join $mem_dir firmware.hex]
+set mem_files [list]
+foreach pattern {*.hex *.regs *.sram} {
+    foreach mem_file [glob -nocomplain -directory $mem_dir $pattern] {
+        lappend mem_files $mem_file
+    }
+}
+
+if {[llength $mem_files] > 0} {
+    add_files -norecurse $mem_files
+    foreach mem_file $mem_files {
+        set mem_obj [get_files -quiet $mem_file]
+        set_property file_type {Memory Initialization Files} $mem_obj
+        set_property USED_IN_SIMULATION 1 $mem_obj
+        set_property USED_IN_SYNTHESIS 0 $mem_obj
+    }
+    if {[file exists $firmware_hex]} {
+        set_property USED_IN_SYNTHESIS 1 [get_files -quiet $firmware_hex]
+    }
 } else {
-    puts "WARNING: $hex_file not found — run make -C [file join $cpu_root firmware] first"
+    puts "WARNING: no memory init files found under $mem_dir — run make -C [file join $cpu_root firmware] and make -C [file join $cpu_root test-fw] build"
 }
 
 set sim_copy_tcl [file normalize [file join $script_dir copy_firmware_sim.tcl]]
 if {[file exists $sim_copy_tcl]} {
-    set_property -name {xsim.simulate.custom_tcl} -value $sim_copy_tcl [get_filesets sim_1]
+    set_property xsim.simulate.custom_tcl $sim_copy_tcl [get_filesets sim_1]
 }
 
 add_files -fileset constrs_1 -norecurse [file join $cpu_root constr nexys_video.xdc]

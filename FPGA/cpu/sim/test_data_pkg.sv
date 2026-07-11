@@ -35,64 +35,6 @@ function automatic bit file_readable(input string path);
     end
 endfunction
 
-task automatic append_mem_search_paths(input string basename, ref string paths[$]);
-    string search_dirs[$] = '{"", "mem/", "../mem/"};
-
-    foreach (search_dirs[i]) begin
-        paths.push_back({search_dirs[i], basename});
-    end
-endtask
-
-task automatic gather_test_data_candidates(
-    input test_data_kind_e kind,
-    input string default_test_hex,
-    ref string paths[$]
-);
-    string path;
-    string regs_path;
-    string hex_path;
-
-    paths.delete();
-    case (kind)
-        TEST_ROM: begin
-            if ($value$plusargs("TEST_HEX=%s", hex_path) ||
-                $value$plusargs("CPUTEST_HEX=%s", hex_path)) begin
-                paths.push_back(hex_path);
-            end else begin
-                append_mem_search_paths(default_test_hex, paths);
-            end
-        end
-        TEST_REGS: begin
-            if ($value$plusargs("TEST_REGS_EXPECTED=%s", path) ||
-                $value$plusargs("TEST_EXPECTED=%s", path) ||
-                $value$plusargs("CPUTEST_EXPECTED=%s", path)) begin
-                paths.push_back(path);
-            end
-            if ($value$plusargs("TEST_HEX=%s", hex_path) ||
-                $value$plusargs("CPUTEST_HEX=%s", hex_path)) begin
-                paths.push_back(replace_suffix(hex_path, ".hex", ".regs"));
-            end
-            append_mem_search_paths("cputest.regs", paths);
-        end
-        TEST_SRAM: begin
-            if ($value$plusargs("TEST_SRAM_EXPECTED=%s", path) ||
-                $value$plusargs("CPUTEST_SRAM_EXPECTED=%s", path)) begin
-                paths.push_back(path);
-            end
-            if ($value$plusargs("TEST_REGS_EXPECTED=%s", regs_path) ||
-                $value$plusargs("TEST_EXPECTED=%s", regs_path) ||
-                $value$plusargs("CPUTEST_EXPECTED=%s", regs_path)) begin
-                paths.push_back(replace_suffix(regs_path, ".regs", ".sram"));
-            end
-            if ($value$plusargs("TEST_HEX=%s", hex_path) ||
-                $value$plusargs("CPUTEST_HEX=%s", hex_path)) begin
-                paths.push_back(replace_suffix(hex_path, ".hex", ".sram"));
-            end
-            append_mem_search_paths("cputest.sram", paths);
-        end
-    endcase
-endtask
-
 task automatic find_test_data_file(
     input test_data_kind_e kind,
     input string default_test_hex,
@@ -100,20 +42,93 @@ task automatic find_test_data_file(
     input bit verbose,
     output bit found
 );
-    string paths[$];
+    string path;
+    string regs_path;
+    string hex_path;
+    string data_dir;
+    string basename;
 
     found = 1'b0;
     found_path = "";
-    gather_test_data_candidates(kind, default_test_hex, paths);
-    foreach (paths[i]) begin
-        if (file_readable(paths[i])) begin
-            found = 1'b1;
-            found_path = paths[i];
-            if (verbose) begin
-                $display("test_data: found %s at %s", test_data_label(kind), found_path);
+
+    case (kind)
+        TEST_ROM: begin
+            if (($value$plusargs("TEST_HEX=%s", path) ||
+                 $value$plusargs("CPUTEST_HEX=%s", path)) &&
+                file_readable(path)) begin
+                found_path = path;
+                found = 1'b1;
+            end else begin
+                basename = default_test_hex;
             end
-            return;
         end
+        TEST_REGS: begin
+            if (($value$plusargs("TEST_REGS_EXPECTED=%s", path) ||
+                 $value$plusargs("TEST_EXPECTED=%s", path) ||
+                 $value$plusargs("CPUTEST_EXPECTED=%s", path)) &&
+                file_readable(path)) begin
+                found_path = path;
+                found = 1'b1;
+            end else if (($value$plusargs("TEST_HEX=%s", hex_path) ||
+                          $value$plusargs("CPUTEST_HEX=%s", hex_path)) &&
+                         file_readable(replace_suffix(hex_path, ".hex", ".regs"))) begin
+                found_path = replace_suffix(hex_path, ".hex", ".regs");
+                found = 1'b1;
+            end else begin
+                basename = replace_suffix(default_test_hex, ".hex", ".regs");
+            end
+        end
+        TEST_SRAM: begin
+            if (($value$plusargs("TEST_SRAM_EXPECTED=%s", path) ||
+                 $value$plusargs("CPUTEST_SRAM_EXPECTED=%s", path)) &&
+                file_readable(path)) begin
+                found_path = path;
+                found = 1'b1;
+            end else if (($value$plusargs("TEST_REGS_EXPECTED=%s", regs_path) ||
+                          $value$plusargs("TEST_EXPECTED=%s", regs_path) ||
+                          $value$plusargs("CPUTEST_EXPECTED=%s", regs_path)) &&
+                         file_readable(replace_suffix(regs_path, ".regs", ".sram"))) begin
+                found_path = replace_suffix(regs_path, ".regs", ".sram");
+                found = 1'b1;
+            end else if (($value$plusargs("TEST_HEX=%s", hex_path) ||
+                          $value$plusargs("CPUTEST_HEX=%s", hex_path)) &&
+                         file_readable(replace_suffix(hex_path, ".hex", ".sram"))) begin
+                found_path = replace_suffix(hex_path, ".hex", ".sram");
+                found = 1'b1;
+            end else begin
+                basename = replace_suffix(default_test_hex, ".hex", ".sram");
+            end
+        end
+    endcase
+
+    if (!found && ($value$plusargs("TEST_DATA_DIR=%s", data_dir) ||
+                   $value$plusargs("CPUTEST_MEM_DIR=%s", data_dir)) &&
+        file_readable({data_dir, "/", basename})) begin
+        found_path = {data_dir, "/", basename};
+        found = 1'b1;
+    end
+    if (!found && file_readable(basename)) begin
+        found_path = basename;
+        found = 1'b1;
+    end
+    if (!found && file_readable({"mem/", basename})) begin
+        found_path = {"mem/", basename};
+        found = 1'b1;
+    end
+    if (!found && file_readable({"../mem/", basename})) begin
+        found_path = {"../mem/", basename};
+        found = 1'b1;
+    end
+    if (!found && file_readable({"../../../../../cpu/mem/", basename})) begin
+        found_path = {"../../../../../cpu/mem/", basename};
+        found = 1'b1;
+    end
+    if (!found && file_readable({"../../../../../../cpu/mem/", basename})) begin
+        found_path = {"../../../../../../cpu/mem/", basename};
+        found = 1'b1;
+    end
+    if (found && verbose) begin
+        $display("test_data: found %s at %s", test_data_label(kind), found_path);
     end
 endtask
 
