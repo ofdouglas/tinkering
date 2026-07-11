@@ -2,7 +2,6 @@
 
 ## TODOs
 * General RTL cleanup
-* Interrupt support
 * Trap handling: bus errors, unaligned errors, invalid CSR access
 * Priviledge levels
 * Flush fewer instructions for CSR hazard

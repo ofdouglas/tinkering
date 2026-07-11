@@ -25,10 +25,12 @@ VERBOSE ?= 0
 DUMP_REGS ?= 0
 IRQ ?= 0
 RTL_SRCS := $(CPU_DIR)/rtl/cpu_config_pkg.sv \
+            $(CPU_DIR)/sim/test_data_pkg.sv \
             $(CPU_DIR)/rtl/rv32defs.sv \
             $(CPU_DIR)/rtl/rv32cpu.sv \
             $(CPU_DIR)/rtl/bus_interface.sv \
             $(CPU_DIR)/rtl/block_sram.sv \
+            $(CPU_DIR)/sim/test_sram_block.sv \
             $(CPU_DIR)/sim/slow_memory_adapter.sv \
             $(CPU_DIR)/sim/cpu_tb.sv
 

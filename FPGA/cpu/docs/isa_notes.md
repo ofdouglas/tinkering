@@ -133,7 +133,7 @@ Exception Return:
 | Name                | Num |
 | ------------------- | ----|
 | M_SW_IRQ  (MSI)     | 3   |
-| M_TIM_IRQ (MTI)     | 3   |
+| M_TIM_IRQ (MTI)     | 7   |
 | M_EXT     (MEI)     | 11  |
 
 - ECALL is synchronous trap, saves ECALL's PC to mret

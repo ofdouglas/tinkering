@@ -1,10 +1,13 @@
 `timescale 1ns / 1ps
+import cpu_config_pkg::*;
+import test_data_pkg::*;
 
 module system_tb;
 
     localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
     localparam time UART_BIT_PERIOD = CLK_PERIOD * 54 * 16;
     localparam time TEST_TIMEOUT = 2ms;
+    localparam int SYSTEM_SRAM_WORDS = 2 ** (MEMORY_ADDR_MSB - 1);
 
     logic clk;
     logic [7:0] led;
@@ -13,6 +16,9 @@ module system_tb;
     logic led_seen;
     logic uart_seen;
     logic test_failed;
+    logic [31:0] expected_sram [0:SYSTEM_SRAM_WORDS-1];
+    bit system_sram_expected_loaded;
+    int unsigned system_sram_check_words;
 
     system dut (
         .clk         (clk),
@@ -96,6 +102,51 @@ module system_tb;
         end
     endtask
 
+    task automatic load_optional_system_sram_expected;
+        string expected_path;
+
+        system_sram_expected_loaded = 1'b0;
+        system_sram_check_words = SYSTEM_SRAM_WORDS;
+        for (int i = 0; i < SYSTEM_SRAM_WORDS; i++) begin
+            expected_sram[i] = 'x;
+        end
+        if ($value$plusargs("SYSTEM_SRAM_WORDS=%d", system_sram_check_words)) begin
+            // plusarg consumed above
+        end else if ($value$plusargs("TEST_SRAM_WORDS=%d", system_sram_check_words)) begin
+            // plusarg consumed above
+        end
+        if ($value$plusargs("SYSTEM_SRAM_EXPECTED=%s", expected_path) ||
+            $value$plusargs("TEST_SRAM_EXPECTED=%s", expected_path)) begin
+            system_sram_expected_loaded = file_readable(expected_path);
+            if (system_sram_expected_loaded) begin
+                $readmemh(expected_path, expected_sram);
+                $display("test_data: loaded %s from %s", test_data_label(TEST_SRAM), expected_path);
+            end
+        end
+        if (system_sram_check_words > SYSTEM_SRAM_WORDS) begin
+            system_sram_check_words = SYSTEM_SRAM_WORDS;
+        end
+    endtask
+
+    task automatic check_optional_system_sram_expected;
+        int unsigned mismatch_count;
+
+        if (!system_sram_expected_loaded) begin
+            return;
+        end
+        mismatch_count = 0;
+        for (int i = 0; i < system_sram_check_words; i++) begin
+            if (expected_word_mismatch(dut.cpu_sram.sram_word_array[i], expected_sram[i],
+                                       i, "system SRAM", 1'b1, "system_tb: FAIL ")) begin
+                mismatch_count++;
+            end
+        end
+        if (mismatch_count > 0) begin
+            fail($sformatf("system SRAM expected contents had %0d mismatch(es)", mismatch_count));
+        end
+        $display("[%0t] system SRAM contents matched expected file", $time);
+    endtask
+
     initial begin
         logic [7:0] led_prev = '0;
         forever begin
@@ -112,6 +163,7 @@ module system_tb;
         led_seen = 1'b0;
         uart_seen = 1'b0;
         test_failed = 1'b0;
+        load_optional_system_sram_expected();
 
         wait (dut.rst_n === 1'b1);
         repeat (4) @(posedge clk);
@@ -130,6 +182,7 @@ module system_tb;
         wait (led_seen && uart_seen);
         disable fork;
         check_debug_leds();
+        check_optional_system_sram_expected();
         if (!test_failed) begin
             $display("[%0t] PASS: system basic behavior verified", $time);
         end

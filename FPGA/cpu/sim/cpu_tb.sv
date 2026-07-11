@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 import cpu_config_pkg::*;
+import test_data_pkg::*;
 
 module cpu_tb;
 
@@ -15,6 +16,7 @@ module cpu_tb;
     localparam logic [31:0] TEST_RAM_END = TEST_RAM_BASE + (SRAM_WORDS * 4);
     localparam logic [31:2] TEST_ROM_WORD_BASE = TEST_ROM_BASE[31:2];
     localparam logic [31:0] NOP_INSTRUCTION = 32'h0000_0013;
+    localparam string DEFAULT_TEST_HEX = "crc.hex";
 
     logic clk;
     logic rst_n;
@@ -43,7 +45,6 @@ module cpu_tb;
 
     logic [31:0] instruction_rom [0:ROM_WORDS-1];
     logic [31:0] expected_registers [0:NUM_REGS-1];
-    logic [31:0] expected_sram [0:SRAM_WORDS-1];
     bit sram_expected_loaded = 1'b0;
     bit skip_register_check = 1'b0;
     bit verbose = 1'b0;
@@ -72,7 +73,10 @@ module cpu_tb;
     );
     assign sram_bus.clk = clk;
     assign sram_bus.rst_n = rst_n;
-    block_sram #(.WORD_ADDR_BITS(DATA_ADDR_BITS)) data_sram (
+    test_sram_block #(
+        .WORD_ADDR_BITS(DATA_ADDR_BITS),
+        .DEFAULT_TEST_HEX(DEFAULT_TEST_HEX)
+    ) data_sram (
         .bus(sram_bus.slave)
     );
 
@@ -137,58 +141,20 @@ module cpu_tb;
         .ext_irq (ext_irq)
     );
 
-    task automatic try_load_rom(input string rom_path, output bit loaded);
-        int rom_file;
+    task automatic load_cpu_test_data(input test_data_kind_e kind, output bit loaded);
+        string path;
 
-        rom_file = $fopen(rom_path, "r");
-        loaded = (rom_file != 0);
-        if (loaded) begin
-            $fclose(rom_file);
-            $readmemh(rom_path, instruction_rom);
-            if (verbose) begin
-                $display("cpu_tb: loaded CPU test ROM from %s", rom_path);
+        find_test_data_file(kind, DEFAULT_TEST_HEX, path, verbose, loaded);
+        if (!loaded) begin
+            return;
+        end
+        case (kind)
+            TEST_ROM:  $readmemh(path, instruction_rom);
+            TEST_REGS: $readmemh(path, expected_registers);
+            default: begin
             end
-        end
+        endcase
     endtask
-
-    task automatic try_load_expected(input string expected_path, output bit loaded);
-        int expected_file;
-
-        expected_file = $fopen(expected_path, "r");
-        loaded = (expected_file != 0);
-        if (loaded) begin
-            $fclose(expected_file);
-            $readmemh(expected_path, expected_registers);
-            if (verbose) begin
-                $display("cpu_tb: loaded CPU expected registers from %s", expected_path);
-            end
-        end
-    endtask
-
-    task automatic try_load_sram_expected(input string expected_path, output bit loaded);
-        int expected_file;
-
-        expected_file = $fopen(expected_path, "r");
-        loaded = (expected_file != 0);
-        if (loaded) begin
-            $fclose(expected_file);
-            $readmemh(expected_path, expected_sram);
-            if (verbose) begin
-                $display("cpu_tb: loaded CPU expected SRAM from %s", expected_path);
-            end
-        end
-    endtask
-
-    function automatic string replace_suffix(input string path, input string old_suffix, input string new_suffix);
-        int suffix_pos;
-
-        suffix_pos = path.len() - old_suffix.len();
-        if (suffix_pos >= 0 && path.substr(suffix_pos, path.len() - 1) == old_suffix) begin
-            replace_suffix = {path.substr(0, suffix_pos - 1), new_suffix};
-        end else begin
-            replace_suffix = path;
-        end
-    endfunction
 
     initial begin
         clk = 1'b0;
@@ -198,10 +164,6 @@ module cpu_tb;
     initial begin
         bit rom_loaded;
         bit expected_loaded;
-        string rom_path;
-        string expected_path;
-        string base_file_name;
-        base_file_name = "crc.hex";
 
         for (int i = 0; i < ROM_WORDS; i++) begin
             instruction_rom[i] = NOP_INSTRUCTION;
@@ -209,57 +171,18 @@ module cpu_tb;
         for (int i = 0; i < NUM_REGS; i++) begin
             expected_registers[i] = 'x;
         end
-        for (int i = 0; i < SRAM_WORDS; i++) begin
-            expected_sram[i] = 'x;
-        end
 
-        rom_loaded = 1'b0;
-        if ($value$plusargs("CPUTEST_HEX=%s", rom_path)) begin
-            try_load_rom(rom_path, rom_loaded);
-        end else begin
-            try_load_rom(base_file_name, rom_loaded);
-            if (!rom_loaded) begin
-                try_load_rom({"mem/", base_file_name}, rom_loaded);
-            end
-            if (!rom_loaded) begin
-                try_load_rom({"../mem/", base_file_name}, rom_loaded);
-            end
-            if (!rom_loaded) begin
-                try_load_rom({"../../../../../cpu/mem/", base_file_name}, rom_loaded);
-            end
-            if (!rom_loaded) begin
-                try_load_rom({"../../../../../../cpu/mem/", base_file_name}, rom_loaded);
-            end
-        end
-
+        load_cpu_test_data(TEST_ROM, rom_loaded);
         if (!rom_loaded) begin
-            $fatal(1, $sformatf("cpu_tb: could not load %s; run make sim in cpu/test-fw/", base_file_name));
+            $fatal(1, "cpu_tb: could not load test hex; run make sim in cpu/test-fw/ or pass +CPUTEST_HEX=<path>");
         end
 
         verbose = $test$plusargs("CPUTEST_VERBOSE");
         dump_regs_on_fail = $test$plusargs("CPUTEST_DUMP_REGS") || verbose;
 
-        expected_loaded = 1'b0;
-        if ($value$plusargs("CPUTEST_EXPECTED=%s", expected_path)) begin
-            try_load_expected(expected_path, expected_loaded);
-        end else begin
-            try_load_expected("cputest.regs", expected_loaded);
-            if (!expected_loaded) begin
-                try_load_expected("mem/cputest.regs", expected_loaded);
-            end
-            if (!expected_loaded) begin
-                try_load_expected("../mem/cputest.regs", expected_loaded);
-            end
-            if (!expected_loaded) begin
-                try_load_expected("../../../../../cpu/mem/cputest.regs", expected_loaded);
-            end
-            if (!expected_loaded) begin
-                try_load_expected("../../../../../../cpu/mem/cputest.regs", expected_loaded);
-            end
-        end
-
+        load_cpu_test_data(TEST_REGS, expected_loaded);
         if (!expected_loaded) begin
-            $fatal(1, "cpu_tb: could not load cputest.regs; run make sim in cpu/test-fw/");
+            $fatal(1, "cpu_tb: could not load .regs expected file; run make sim in cpu/test-fw/ or pass +CPUTEST_EXPECTED=<path>");
         end
 
         if ($test$plusargs("CPUTEST_SKIP_REGS")) begin
@@ -289,26 +212,8 @@ module cpu_tb;
             $display("cpu_tb: running for %0d clock cycles", run_cycles);
         end
 
-        sram_expected_loaded = 1'b0;
-        if ($value$plusargs("CPUTEST_SRAM_EXPECTED=%s", expected_path)) begin
-            try_load_sram_expected(expected_path, sram_expected_loaded);
-        end else if ($value$plusargs("CPUTEST_EXPECTED=%s", expected_path)) begin
-            try_load_sram_expected(replace_suffix(expected_path, ".regs", ".sram"), sram_expected_loaded);
-        end else begin
-            try_load_sram_expected("cputest.sram", sram_expected_loaded);
-            if (!sram_expected_loaded) begin
-                try_load_sram_expected("mem/cputest.sram", sram_expected_loaded);
-            end
-            if (!sram_expected_loaded) begin
-                try_load_sram_expected("../mem/cputest.sram", sram_expected_loaded);
-            end
-            if (!sram_expected_loaded) begin
-                try_load_sram_expected("../../../../../cpu/mem/cputest.sram", sram_expected_loaded);
-            end
-            if (!sram_expected_loaded) begin
-                try_load_sram_expected("../../../../../../cpu/mem/cputest.sram", sram_expected_loaded);
-            end
-        end
+        data_sram.clear_expected();
+        data_sram.load_expected(verbose, sram_expected_loaded);
     end
 
     function automatic logic [31:0] rom_insn_at(input logic [31:0] pc);
@@ -419,50 +324,14 @@ module cpu_tb;
         end
     endtask
 
-    task automatic check_sram_word(input int unsigned index, input logic [31:0] expected);
-        // Kept for compatibility; prefer check_cputest_sram batch reporting.
-        logic [31:0] actual;
-
-        if ($isunknown(expected)) begin
-            return;
-        end
-
-        actual = data_sram.sram_word_array[index];
-        if (actual !== expected) begin
-            fail_line($sformatf("SRAM word %0d mismatch: got 0x%08x expected 0x%08x", index, actual, expected));
-        end
-    endtask
-
     task automatic check_cputest_sram;
-        int unsigned limit;
         int unsigned mismatch_count;
 
         if (!sram_expected_loaded) begin
             return;
         end
 
-        limit = (sram_check_words == 0) ? SRAM_WORDS : sram_check_words;
-        if (limit > SRAM_WORDS) begin
-            limit = SRAM_WORDS;
-        end
-
-        mismatch_count = 0;
-        for (int i = 0; i < limit; i++) begin
-            logic [31:0] actual;
-            logic [31:0] expected;
-
-            expected = expected_sram[i];
-            if ($isunknown(expected)) begin
-                continue;
-            end
-
-            actual = data_sram.sram_word_array[i];
-            if (actual !== expected) begin
-                fail_line($sformatf("SRAM word %0d mismatch: got 0x%08x expected 0x%08x",
-                                     i, actual, expected));
-                mismatch_count++;
-            end
-        end
+        data_sram.verify_expected(sram_check_words, verbose, "cputest: FAIL ", mismatch_count);
 
         if (mismatch_count > 0) begin
             fail_done();
