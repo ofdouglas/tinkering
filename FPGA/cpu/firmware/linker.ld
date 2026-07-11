@@ -5,8 +5,42 @@ MEMORY {
     SYS (rw) : ORIGIN = 0x00020000, LENGTH = 4K
 }
 SECTIONS {
-    .text : { *(.text*) } > ROM
-    .data : { *(.data*) } > RAM
-    .bss  : { *(.bss*) *(COMMON) } > RAM
+    .text : 
+    { 
+        . = ALIGN(4);
+        *(.text*)
+        . = ALIGN(4);
+        *(.rodata*)
+        *(.srodata*)
+        . = ALIGN(4);
+
+    } > ROM
+    
+    .bss  : 
+    { 
+        . = ALIGN(4);
+        _bss_start = .;
+        *(.bss*)
+        *(.sbss*)
+        *(.scommon)
+        *(COMMON)
+        . = ALIGN(4);
+        _bss_end = .;
+
+    } > RAM
+
+    .data : 
+    {
+        . = ALIGN(4);
+        _data_start = .;
+        *(.data*)
+        *(.sdata*)
+        . = ALIGN(4);
+        _data_end = .;
+
+    } > RAM AT> ROM
+
+    _copy_data = LOADADDR(.data);
+
     _stack_top = ORIGIN(RAM) + LENGTH(RAM);
 }

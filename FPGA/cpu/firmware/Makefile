@@ -7,6 +7,7 @@ HEX_INSTALL = ../mem/firmware.hex
 FIRMWARE_ELF = $(BUILD_DIR)/firmware.elf
 FIRMWARE_HEX = $(BUILD_DIR)/firmware.hex
 FIRMWARE_LST = $(BUILD_DIR)/firmware.lst
+FIRMWARE_MAP = $(BUILD_DIR)/firmware.map
 START_OBJ = $(BUILD_DIR)/start.o
 MAIN_OBJ = $(BUILD_DIR)/main.o
 CPUTEST ?= cputest
@@ -16,12 +17,13 @@ CPUTEST_OBJ = $(BUILD_DIR)/$(CPUTEST).o
 CPUTEST_ELF = $(BUILD_DIR)/$(CPUTEST).elf
 CPUTEST_HEX = $(BUILD_DIR)/$(CPUTEST).hex
 CPUTEST_LST = $(BUILD_DIR)/$(CPUTEST).lst
+CPUTEST_MAP = $(BUILD_DIR)/$(CPUTEST).map
 CPUTEST_HEX_INSTALL = ../mem/$(CPUTEST).hex
 CPUTEST_EXPECTED_INSTALL = ../mem/$(CPUTEST).expected
 
-all: $(FIRMWARE_HEX) $(FIRMWARE_LST)
+all: $(FIRMWARE_HEX) $(FIRMWARE_LST) $(FIRMWARE_MAP)
 
-cputest: $(CPUTEST_HEX) $(CPUTEST_LST) $(CPUTEST_EXPECTED_INSTALL)
+cputest: $(CPUTEST_HEX) $(CPUTEST_LST) $(CPUTEST_MAP) $(CPUTEST_EXPECTED_INSTALL)
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -32,6 +34,8 @@ $(FIRMWARE_HEX): $(FIRMWARE_ELF)
 	cp $@ $(HEX_INSTALL)
 $(FIRMWARE_LST): $(FIRMWARE_ELF)
 	$(PREFIX)objdump -d -S $< > $@
+$(FIRMWARE_MAP): $(FIRMWARE_ELF)
+	$(PREFIX)objdump -t $< > $@
 
 $(CPUTEST_HEX): $(CPUTEST_ELF)
 	$(PREFIX)objcopy -O verilog --verilog-data-width=4 $< $@
@@ -39,6 +43,8 @@ $(CPUTEST_HEX): $(CPUTEST_ELF)
 	cp $@ $(CPUTEST_HEX_INSTALL)
 $(CPUTEST_LST): $(CPUTEST_ELF)
 	$(PREFIX)objdump -d -S $< > $@
+$(CPUTEST_MAP): $(CPUTEST_ELF)
+	$(PREFIX)objdump -t $< > $@
 
 $(CPUTEST_EXPECTED_INSTALL): $(CPUTEST_EXPECTED_SRC)
 	@mkdir -p $(dir $@)
@@ -61,4 +67,4 @@ $(CPUTEST_OBJ): $(CPUTEST_SRC) | $(BUILD_DIR)
 
 .PHONY: all cputest clean
 clean:
-	rm -rf $(BUILD_DIR) *.o cputest/*.o *.elf *.hex *.lst ../mem/*.hex ../mem/*.expected
+	rm -rf $(BUILD_DIR) *.o cputest/*.o *.elf *.hex *.lst *.map ../mem/*.hex ../mem/*.expected

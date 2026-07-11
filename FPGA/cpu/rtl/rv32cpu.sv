@@ -46,16 +46,17 @@ assign external_interrupt = ext_irq &&
                             machine_special_regs.mie.mei_enable;
 
 logic exception_entry;
-assign exception_entry = cpu_ctrl.decode_trap || external_interrupt || cpu_ctrl.invalid_opcode;
+assign exception_entry = cpu_ctrl.decode_trap || external_interrupt || cpu_ctrl.illegal_instruction;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 1: Instruction Fetch
 ///////////////////////////////////////////////////////////////////////////////
 logic [31:0] next_pc, pc_plus4;
 logic instruction_flush;
+logic branch_redirect_taken;
 
 
-assign instruction_flush = external_interrupt || cpu_ctrl.decode_trap || cpu_ctrl.exception_return || (decode_regs.valid && cpu_ctrl.branch_taken);
+assign instruction_flush = external_interrupt || cpu_ctrl.decode_trap || cpu_ctrl.exception_return || branch_redirect_taken;
 
 // Address generation
 always_comb begin
@@ -66,7 +67,7 @@ always_comb begin
         next_pc = {machine_special_regs.mtvec.base, 2'b00};
     end else if (cpu_ctrl.exception_return) begin
         next_pc = machine_special_regs.mepc;
-    end else if (decode_regs.valid && cpu_ctrl.branch_taken) begin
+    end else if (branch_redirect_taken) begin
         next_pc = cpu_ctrl.branch_pc;
     end else begin
         next_pc = pc_plus4;
@@ -230,6 +231,7 @@ end
 
 // Decode instruction, set controls/operands
 always_comb begin
+    cpu_ctrl.illegal_instruction = 1'b0;
     cpu_ctrl.invalid_opcode    = 1'b0;
     cpu_ctrl.decode_trap       = 1'b0;
     cpu_ctrl.exception_return  = 1'b0;
@@ -446,11 +448,13 @@ always_comb begin
             alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
         end
     endcase
+
+    cpu_ctrl.illegal_instruction = cpu_ctrl.invalid_opcode && fetch_regs.valid && !branch_redirect_taken;
 end
 
 always_ff @(posedge clk) begin
     logic flush_instruction;
-    flush_instruction = cpu_ctrl.branch_taken || cpu_ctrl.invalid_opcode; // todo: decode_regs.valid?
+    flush_instruction = branch_redirect_taken || cpu_ctrl.illegal_instruction;
 
     if (!rst_n) begin
         decode_regs <= '0;
@@ -625,7 +629,7 @@ always_comb begin
     cpu_ctrl.branch_pc = {address_sum[31:1], 1'b0};
 
     branch_taken = decode_regs.jump_branch_ctrl.is_branch_instr && compare_result;
-    cpu_ctrl.branch_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr);
+    branch_redirect_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr);
 end
 
 // ALU Result
@@ -746,18 +750,52 @@ end
 // Stage 4B: Special Registers
 ///////////////////////////////////////////////////////////////////////////////
 logic [31:0] mcause_data;
+logic [31:0] mtval_data;
 
-// Determine trap type for mcause
+// Determine trap type for mcause and trap value for mtval
 always_comb begin
     // TODO: handle other trap types
     if (cpu_ctrl.decode_trap) begin
         mcause_data = write_mcause(0, TRAP_ECALL_M);
-    end else if (cpu_ctrl.invalid_opcode) begin
+        mtval_data = '0;
+    end else if (cpu_ctrl.illegal_instruction) begin
         mcause_data = write_mcause(0, TRAP_ILLEGAL_INST);
+        // Debug encoding for illegal instruction traps:
+        // [31:24]=0xdb, [23:17]=opcode,
+        // [16]=fetch valid, [15]=decode valid, [14]=branch redirect,
+        // [13]=branch suppression term, [12]=invalid opcode,
+        // [11]=illegal instruction, [10]=fetch_valid input,
+        // [9]=instruction_flush, [8]=decode_flush, [7]=mem_stall,
+        // [6]=decode jump, [5]=decode jalr, [4]=decode branch,
+        // [3]=execute valid, [2]=external interrupt,
+        // [1]=decode trap, [0]=exception return.
+        mtval_data = {
+            8'hdb,
+            opcode,
+            fetch_regs.valid,
+            decode_regs.valid,
+            branch_redirect_taken,
+            (decode_regs.valid && branch_redirect_taken),
+            cpu_ctrl.invalid_opcode,
+            cpu_ctrl.illegal_instruction,
+            fetch_valid,
+            instruction_flush,
+            cpu_ctrl.decode_flush,
+            cpu_ctrl.mem_stall,
+            decode_regs.jump_branch_ctrl.is_jump_instr,
+            decode_regs.jump_branch_ctrl.is_jump_register_instr,
+            decode_regs.jump_branch_ctrl.is_branch_instr,
+            execute_regs.valid,
+            external_interrupt,
+            cpu_ctrl.decode_trap,
+            cpu_ctrl.exception_return
+        };
     end else if (external_interrupt) begin
         mcause_data = write_mcause(1, IRQ_SRC_MEI);
+        mtval_data = '0;
     end else begin
         mcause_data = machine_special_regs.mcause;
+        mtval_data = machine_special_regs.mtval;
     end
 end
 
@@ -790,6 +828,7 @@ always_ff @(posedge clk) begin
         machine_special_regs.mstatus.mpie <= machine_special_regs.mstatus.mie;
         machine_special_regs.mepc         <= fetch_regs.fetch_pc;
         machine_special_regs.mcause       <= mcause_data;
+        machine_special_regs.mtval        <= mtval_data;
     end else if (!cpu_ctrl.mem_stall && csr_writeback_en) begin
         case (csr_class_e'(csr_class_bits))
             CSR_CLASS_MACHINE_RW: begin

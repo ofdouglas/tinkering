@@ -18,6 +18,7 @@ SIM_BIN := $(SIM_DIR)/Vcpu_tb
 MEM_LATENCY ?=
 CYCLES ?=
 VERBOSE ?= 0
+DUMP_REGS ?= 0
 IRQ ?= 0
 RTL_SRCS := $(CPU_DIR)/rtl/rv32defs.sv \
             $(CPU_DIR)/rtl/rv32cpu.sv \
@@ -55,6 +56,7 @@ sim: build $(SIM_BIN)
 		[ -n "$(MEM_LATENCY)" ] && extra="$$extra +CPUTEST_MEM_LATENCY=$(MEM_LATENCY)"; \
 		[ -n "$(CYCLES)" ] && extra="$$extra +CPUTEST_CYCLES=$(CYCLES)"; \
 		[ "$(VERBOSE)" = "1" ] && extra="$$extra +CPUTEST_VERBOSE"; \
+		[ "$(DUMP_REGS)" = "1" ] && extra="$$extra +CPUTEST_DUMP_REGS"; \
 		[ "$$t" = "trap" ] && extra="$$extra +CPUTEST_IRQ"; \
 		if [ "$(VERBOSE)" = "1" ]; then \
 			echo "=== cputest [$$n/$$total]: $$t ==="; \
@@ -75,7 +77,7 @@ sim: build $(SIM_BIN)
 				msg=$$(echo "$$out" | sed -n 's/^cputest: FAIL //p' | head -1); \
 				[ -z "$$msg" ] && msg="simulator error (exit $$rc)"; \
 				printf '  %-24s FAIL\n' "$$t"; \
-				echo "$$out" | grep -E '^cputest: FAIL|^%Error:|^%Fatal:' | sed 's/^/    /'; \
+				echo "$$out" | grep -E '^cputest: FAIL|^cputest: ---|^cputest:   |^%Error:|^%Fatal:' | sed 's/^/    /'; \
 				[ -z "$$(echo "$$out" | grep -E '^cputest: FAIL|^%Error:|^%Fatal:')" ] && \
 					echo "    $$msg"; \
 				fail_log="$$fail_log  $$t: $$msg\n"; \
@@ -102,10 +104,10 @@ define ASM_TEST_RULES
 $(BUILD_DIR)/$(1)/$(1).o: $(1).s | $(BUILD_DIR)/$(1)
 	$(PREFIX)gcc $(ASFLAGS) -c $$< -o $$@
 
-$(BUILD_DIR)/$(1)/$(1).elf: $(BUILD_DIR)/$(1)/$(1).o
-	$(PREFIX)gcc $(LDFLAGS) -o $$@ $$^ -lgcc
+$(BUILD_DIR)/$(1)/$(1).elf $(BUILD_DIR)/$(1)/$(1).map: $(BUILD_DIR)/$(1)/$(1).o
+	$(PREFIX)gcc $(LDFLAGS) -Wl,-Map=$(BUILD_DIR)/$(1)/$(1).map -o $(BUILD_DIR)/$(1)/$(1).elf $$^ -lgcc
 
-$(BUILD_DIR)/$(1)/$(1).hex: $(BUILD_DIR)/$(1)/$(1).elf
+$(BUILD_DIR)/$(1)/$(1).hex: $(BUILD_DIR)/$(1)/$(1).elf $(BUILD_DIR)/$(1)/$(1).map
 	$(PREFIX)objcopy -O verilog --verilog-data-width=4 $$< $$@
 	$(OBJDUMP) $$< > $(BUILD_DIR)/$(1)/$(1).lst
 
@@ -125,10 +127,10 @@ $(BUILD_DIR)/$(1)/start.o: $(FIRMWARE_DIR)/start.S | $(BUILD_DIR)/$(1)
 $(BUILD_DIR)/$(1)/$(1).o: $(1).c | $(BUILD_DIR)/$(1)
 	$(PREFIX)gcc $(CFLAGS) -c $$< -o $$@
 
-$(BUILD_DIR)/$(1)/$(1).elf: $(BUILD_DIR)/$(1)/start.o $(BUILD_DIR)/$(1)/$(1).o
-	$(PREFIX)gcc $(LDFLAGS) -o $$@ $$^ -lgcc
+$(BUILD_DIR)/$(1)/$(1).elf $(BUILD_DIR)/$(1)/$(1).map: $(BUILD_DIR)/$(1)/start.o $(BUILD_DIR)/$(1)/$(1).o
+	$(PREFIX)gcc $(LDFLAGS) -Wl,-Map=$(BUILD_DIR)/$(1)/$(1).map -o $(BUILD_DIR)/$(1)/$(1).elf $$^ -lgcc
 
-$(BUILD_DIR)/$(1)/$(1).hex: $(BUILD_DIR)/$(1)/$(1).elf
+$(BUILD_DIR)/$(1)/$(1).hex: $(BUILD_DIR)/$(1)/$(1).elf $(BUILD_DIR)/$(1)/$(1).map
 	$(PREFIX)objcopy -O verilog --verilog-data-width=4 $$< $$@
 	$(OBJDUMP) $$< > $(BUILD_DIR)/$(1)/$(1).lst
 
