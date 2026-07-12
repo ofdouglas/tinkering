@@ -13,53 +13,28 @@ reset_control reset_controller(
     .rst_n(rst_n)
 );
 
-// Instruction ROM for the CPU
-bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_bus();
-block_rom cpu_rom (
-    .bus(rom_bus.slave)
+// Instruction ROM for the CPU (private access)
+bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_fetch();
+// Alternate ROM access from main system bus, for loading data from ROM
+bus_slave_read_port #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_alt_port();
+block_rom #(
+    .WORD_ADDR_BITS(MEMORY_ADDR_MSB-1),
+    .ADDR_MSB(MEMORY_ADDR_MSB)
+) cpu_rom (
+    .bus_main(rom_fetch.slave),
+    .bus_port2(rom_alt_port.slave)
 );
+logic [MEMORY_ADDR_MSB:2] rom_fetch_response_addr;
+logic rom_fetch_response_matches;
 
-localparam int ROM_WORD_ADDR_BITS = MEMORY_ADDR_MSB - 1;
-localparam int ROM_WORDS = 2 ** ROM_WORD_ADDR_BITS;
-localparam logic [31:0] NOP_INSTRUCTION = 32'h0000_0013;
-
-logic [31:0] instruction_rom [0:ROM_WORDS-1];
-logic [31:0] instruction_fetch;
-logic [31:2] fetch_addr;
-logic fetch_valid;
-logic fetch_in_range;
-logic [ROM_WORD_ADDR_BITS-1:0] fetch_word_addr;
-
-assign fetch_word_addr = fetch_addr[MEMORY_ADDR_MSB:2];
-assign fetch_in_range = (fetch_addr[31:MEMORY_ADDR_MSB+1] == '0);
-assign instruction_fetch = fetch_in_range ? instruction_rom[fetch_word_addr] : NOP_INSTRUCTION;
-assign fetch_valid = rst_n && fetch_in_range;
-
-initial begin
-    string rom_path;
-    int rom_fd;
-
-    if (!$value$plusargs("FIRMWARE_HEX=%s", rom_path)) begin
-        rom_path = "firmware.hex";
-        rom_fd = $fopen(rom_path, "r");
-        if (rom_fd == 0) begin
-            rom_path = "mem/firmware.hex";
-            rom_fd = $fopen(rom_path, "r");
-        end
-        if (rom_fd == 0) begin
-            rom_path = "../../../../../cpu/mem/firmware.hex";
-            rom_fd = $fopen(rom_path, "r");
-        end
+always_ff @(posedge clk) begin
+    if (!rst_n) begin
+        rom_fetch_response_addr <= '0;
     end else begin
-        rom_fd = $fopen(rom_path, "r");
+        rom_fetch_response_addr <= rom_fetch.addr;
     end
-
-    if (rom_fd == 0) begin
-        $fatal(1, "system: could not load firmware hex; run make in firmware/ and pass +FIRMWARE_HEX=<path> if needed");
-    end
-    $fclose(rom_fd);
-    $readmemh(rom_path, instruction_rom);
 end
+assign rom_fetch_response_matches = rom_fetch.rd_valid && (rom_fetch_response_addr == rom_fetch.addr);
 
 // Data RAM for the CPU
 bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) sram_bus();
@@ -67,22 +42,20 @@ block_sram #(.WORD_ADDR_BITS(MEMORY_ADDR_MSB-1)) cpu_sram (
     .bus(sram_bus.slave)
 );
 
-// GPIO (LED control)
-bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) gpio_bus();
-logic [7:0] sys_gpio_led_enables;
-gpio system_gpio (
-    .bus(gpio_bus.slave),
-    .led_driver_enables(sys_gpio_led_enables)
-);
-assign led[7:0] = {cpu_trap, unaligned_write_trap, rom_trap, 1'b0, sys_gpio_led_enables[3:0]};
+// TODO: get rid of debug LEDs once we have better signaling for HW faults
+logic [7:0] gpio_led_enables;
+logic [3:0] debug_leds;
 
-// Debug UART
-bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) uart_bus();
-uart_periph uart0 (
-    .bus(uart_bus.slave),
+// Peripheral bus
+bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+1)) periph_bus();
+system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+1)) peripherals (
+    .bus(periph_bus.slave),
+    .sys_gpio_led_enables(gpio_led_enables),
     .uart_tx_out(uart_tx_out),
     .uart_rx_in(uart_rx_in)
 );
+assign led = {debug_leds, gpio_led_enables[3:0]};
+
 
 // System bus. address_bus[31:28] selects regions
 logic [31:0] address_bus;
@@ -97,6 +70,7 @@ logic memory_access_error;
 logic cpu_request;
 logic cpu_trap;
 logic rom_trap;
+logic periph_trap;
 logic unaligned_write_trap;
 
 logic is_write;
@@ -123,27 +97,26 @@ end
 logic [3:0] region;
 assign region = address_bus[REGION_BITS_MSB:REGION_BITS_LSB];
 
-logic region_rom, region_ram, region_led, region_uart;
-assign region_rom  = (region == REGION_BOOT_ROM);
-assign region_ram  = (region == REGION_SHARED_RAM);
-assign region_led  = (region == REGION_PERIPH) && (address_bus[PERIPH_ADDR_MSB+1] == 1'b0);
-assign region_uart = (region == REGION_PERIPH) && (address_bus[PERIPH_ADDR_MSB+1] == 1'b1);
+logic region_rom, region_ram, region_periph;
+assign region_rom     = (region == REGION_BOOT_ROM);
+assign region_ram     = (region == REGION_SHARED_RAM);
+assign region_periph  = (region == REGION_PERIPH);
 
 always_comb begin
     memory_access_valid = 1'b0;
     memory_rd_valid = 1'b0;
     memory_wr_ack = 1'b0;
+    periph_trap = 1'b0;
+
     if (region_rom) begin
-        memory_rd_valid = rom_bus.rd_valid;
+        memory_rd_valid = rom_alt_port.rd_valid;
     end else if (region_ram) begin
         memory_rd_valid = sram_bus.rd_valid;
         memory_wr_ack = sram_bus.wr_ack;
-    end else if (region_led) begin
-        memory_rd_valid = gpio_bus.rd_valid;
-        memory_wr_ack = gpio_bus.wr_ack;
-    end else if (region_uart) begin
-        memory_rd_valid = uart_bus.rd_valid;
-        memory_wr_ack = uart_bus.wr_ack;
+    end else if (region_periph) begin
+        memory_rd_valid = periph_bus.rd_valid;
+        memory_wr_ack = periph_bus.wr_ack;
+        periph_trap = periph_bus.error;
     end
     memory_access_valid = is_write ? memory_wr_ack : memory_rd_valid;
 end
@@ -151,25 +124,25 @@ end
 // Read bus multiplexing
 always_comb begin
     data_read_bus = '0;
+    
     if (region_rom) begin
-        data_read_bus = rom_bus.rd_data;
+        data_read_bus = rom_alt_port.rd_data;
     end else if (region_ram) begin
         data_read_bus = sram_bus.rd_data;
-    end else if (region_led) begin
-        data_read_bus = gpio_bus.rd_data;
-    end else if (region_uart) begin
-        data_read_bus = uart_bus.rd_data;
+    end else if (region_periph) begin
+        data_read_bus = periph_bus.rd_data;
     end
 end
 
 
-assign rom_bus.clk   = clk;
-assign rom_bus.rst_n = rst_n;
-assign rom_bus.valid = region_rom && cpu_request && !is_write;
-assign rom_bus.wr_strobe = '0;
-assign rom_bus.wr_data = '0;
-assign rom_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
-assign rom_trap = rom_bus.error;
+assign rom_fetch.clk   = clk;
+assign rom_fetch.rst_n = rst_n;
+assign rom_fetch.valid = 1'b1;
+assign rom_fetch.wr_strobe = '0;
+assign rom_fetch.wr_data = '0;
+assign rom_alt_port.valid = region_rom && cpu_request && !is_write;
+assign rom_alt_port.addr = address_bus[MEMORY_ADDR_MSB:2];
+assign rom_trap = rom_fetch.error || rom_alt_port.error;
 
 assign sram_bus.clk   = clk;
 assign sram_bus.rst_n = rst_n;
@@ -178,32 +151,35 @@ assign sram_bus.wr_strobe = byte_enables;
 assign sram_bus.wr_data = data_write_bus;
 assign sram_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
 
-assign gpio_bus.clk   = clk;
-assign gpio_bus.rst_n = rst_n;
-assign gpio_bus.valid = region_led && cpu_request;
-assign gpio_bus.wr_strobe = byte_enables;
-assign gpio_bus.wr_data = data_write_bus;
-assign gpio_bus.addr = address_bus[PERIPH_ADDR_MSB:2];
+assign periph_bus.clk   = clk;
+assign periph_bus.rst_n = rst_n;
+assign periph_bus.valid = region_periph && cpu_request;
+assign periph_bus.wr_strobe = byte_enables;
+assign periph_bus.wr_data = data_write_bus;
+assign periph_bus.addr = address_bus[PERIPH_ADDR_MSB+1:2];
 
-assign uart_bus.clk   = clk;
-assign uart_bus.rst_n = rst_n;
-assign uart_bus.valid = region_uart && cpu_request;
-assign uart_bus.wr_strobe = byte_enables;
-assign uart_bus.wr_data = data_write_bus;
-assign uart_bus.addr = address_bus[PERIPH_ADDR_MSB:2];
 
 assign memory_access_error = cpu_request &&
                              (unaligned_write_trap ||
                               (region_rom && is_write) ||
-                              !(region_rom || region_ram || region_led || region_uart));
+                              !(region_rom || region_ram || region_periph));
 assign cpu_trap = memory_access_error || rom_trap;
+
+// Latch HW faults
+always_ff @(posedge clk) begin
+    if (!rst_n) begin
+        debug_leds <= '0;
+    end else begin
+        debug_leds <= {memory_access_error, rom_trap, periph_trap, unaligned_write_trap};
+    end
+end
 
 rv32cpu cpu(
     .clk               (clk),
     .rst_n             (rst_n),
-    .instruction_fetch (instruction_fetch),
-    .fetch_addr        (fetch_addr),
-    .fetch_valid       (fetch_valid),
+    .instruction_fetch (rom_fetch.rd_data),
+    .fetch_addr        (rom_fetch.addr),
+    .fetch_valid       (rom_fetch_response_matches),
     .ext_irq           (1'b0),
     .valid             (cpu_request),
     .wr_strobe         (byte_enables),

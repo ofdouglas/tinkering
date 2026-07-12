@@ -5,8 +5,8 @@ package cpu_config_pkg;
     localparam int REGION_BITS_MSB  = 31;
     localparam int REGION_BITS_LSB  = 28;
 
-    localparam int MEMORY_ADDR_MSB  = 17;   // [17:2] ->  256 KiB 
-    // localparam int MEMORY_ADDR_MSB  = 11;   // [11:2] ->  4 KiB 
+    // localparam int MEMORY_ADDR_MSB  = 17;   // [17:2] ->  256 KiB 
+    localparam int MEMORY_ADDR_MSB  = 11;   // [11:2] ->  4 KiB 
     localparam int PERIPH_ADDR_MSB  = 7;    // [7:2]  -> 256 B
 
     // Memory regions (64 KiB each)

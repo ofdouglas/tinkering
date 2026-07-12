@@ -10,6 +10,7 @@ logic       uart_tx_ready;
 logic [7:0] uart_reg_tx_data;
 logic [7:0] uart_rx_data_r;
 logic [7:0] uart_reg8_mux = '0;
+logic       tx_write_active = 1'b0;
 
 assign bus.rd_data = {24'b0, uart_reg8_mux};
 
@@ -31,14 +32,18 @@ always_ff @(posedge bus.clk) begin
         uart_reg_tx_data <= '0;
         uart_tx_strobe   <= 1'b0;
         bus.wr_ack       <= 1'b0;
+        tx_write_active  <= 1'b0;
     end else begin
         uart_tx_strobe <= 1'b0;
         bus.wr_ack     <= 1'b0;
 
-        if (bus.valid && bus.wr_strobe[0] && (bus.addr[3:2] == 2'b01)) begin
+        if (!bus.valid) begin
+            tx_write_active <= 1'b0;
+        end else if (!tx_write_active && bus.wr_strobe[0] && (bus.addr[3:2] == 2'b01)) begin
             uart_reg_tx_data <= bus.wr_data[7:0];
             uart_tx_strobe   <= 1'b1;
             bus.wr_ack       <= 1'b1;
+            tx_write_active  <= 1'b1;
         end
     end
 end

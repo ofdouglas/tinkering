@@ -1,7 +1,7 @@
 import RiscV_32_Definitions::*;
 
 module rv32cpu #(
-    parameter logic [31:0] RESET_PC = 32'h0000_0000
+    parameter logic [31:0] RESET_PC = 32'h0001_0000
 ) (
     input  logic                clk,
     input  logic                rst_n,
@@ -86,7 +86,13 @@ always_ff @(posedge clk) begin
 
         fetch_regs.valid <= fetch_valid && !instruction_flush;
 
-        if (fetch_valid) begin
+        if (instruction_flush) begin
+            fetch_regs.current_pc <= next_pc;
+            fetch_regs.fetch_pc <= next_pc;
+            // Prevent a stale instruction from being decoded again before the
+            // redirected fetch returns its replacement word.
+            fetch_regs.instruction <= 32'h0000_0013;
+        end else if (fetch_valid) begin
             fetch_regs.current_pc  <= next_pc;
             fetch_regs.fetch_pc    <= fetch_regs.current_pc;
             fetch_regs.instruction <= instruction_fetch;
@@ -181,7 +187,7 @@ always_comb begin
         OPCODE_IMM_ALU:  immediate_bits = {{20{instr[31]}}, instr[31:20]};
         OPCODE_SYSTEM:   immediate_bits = {27'd0, rs1_reg_select[4:0]};
         // TODO: cleanup for immediate shifts: func7 bit shows up in immediate_bits, but is ignored in ALU
-        default:         immediate_bits = 'x;
+        default:         immediate_bits = '0;
     endcase
 end
 
@@ -518,7 +524,7 @@ always_comb begin
         ALU_LEFT_SRC_IMM: begin
             alu_left = decode_regs.immediate;
         end
-        default: alu_left = 'x;
+        default: alu_left = '0;
     endcase
 
     // ALU Right Operand
@@ -538,7 +544,7 @@ always_comb begin
         ALU_RIGHT_SRC_CSR: begin
             alu_right = decode_regs.csr_read;
         end
-        default: alu_right = 'x;
+        default: alu_right = '0;
     endcase
 
     // rs2 for store instructions and CSR read
@@ -564,7 +570,7 @@ always_comb begin
         LOGIC_OR:    logic_result = alu_left | alu_right;
         LOGIC_AND:   logic_result = alu_left & alu_right;
         LOGIC_CLEAR: logic_result = ~alu_left & alu_right;
-        default:     logic_result = 'x;
+        default:     logic_result = '0;
     endcase
 
     case (alu_shift_e'(decode_regs.funct_3[2]))
@@ -579,7 +585,7 @@ always_comb begin
             end
         end
         default: begin
-            shifter_result = 'x;
+            shifter_result = '0;
         end
     endcase
 end
@@ -624,7 +630,7 @@ always_comb begin
         CMP_NE:  compare_result = ~equal_flag;
         CMP_LT:  compare_result = less_flag;
         CMP_GE:  compare_result = ~less_flag;
-        default: compare_result = 'x;
+        default: compare_result = '0;
     endcase
 
     // JALR uses rs1 + immediate; all other branching uses PC + immediate
@@ -643,7 +649,7 @@ always_comb begin
         ALU_MUX_ADDER:   alu_result = adder_sum;
         ALU_MUX_SHIFT:   alu_result = shifter_result;
         ALU_MUX_COMPARE: alu_result = {31'b0, compare_result};
-        default:         alu_result = 'x;
+        default:         alu_result = {31'b0, compare_result};
     endcase
 end
 
@@ -719,7 +725,7 @@ always_comb begin
         end
         default: begin
             byte_lanes = 4'b0000;
-            shifted_wr_data = 'x;
+            shifted_wr_data = rs2_reg_mux;
         end
         // TODO: unaligned access traps
     endcase
@@ -732,7 +738,7 @@ always_comb begin
         4'b0011 : shifted_rd_data = zero_extend ? {16'd0, rd_data[15:0]}    : {{16{rd_data[15]}}, rd_data[15:0]};
         4'b1100 : shifted_rd_data = zero_extend ? {16'd0, rd_data[31:16]}   : {{16{rd_data[31]}}, rd_data[31:16]};
         4'b1111 : shifted_rd_data = rd_data;
-        default : shifted_rd_data = 'x;
+        default : shifted_rd_data = rd_data;
     endcase
 end
 

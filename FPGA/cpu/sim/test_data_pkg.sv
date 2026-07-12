@@ -28,6 +28,9 @@ endfunction
 function automatic bit file_readable(input string path);
     int fd;
 
+    if (path.len() == 0) begin
+        return 1'b0;
+    end
     fd = $fopen(path, "r");
     file_readable = (fd != 0);
     if (fd != 0) begin
@@ -50,6 +53,7 @@ task automatic find_test_data_file(
 
     found = 1'b0;
     found_path = "";
+    basename = "";
 
     case (kind)
         TEST_ROM: begin
@@ -79,6 +83,9 @@ task automatic find_test_data_file(
             end
         end
         TEST_SRAM: begin
+            bit hex_plusarg_seen;
+
+            hex_plusarg_seen = 1'b0;
             if (($value$plusargs("TEST_SRAM_EXPECTED=%s", path) ||
                  $value$plusargs("CPUTEST_SRAM_EXPECTED=%s", path)) &&
                 file_readable(path)) begin
@@ -90,40 +97,45 @@ task automatic find_test_data_file(
                          file_readable(replace_suffix(regs_path, ".regs", ".sram"))) begin
                 found_path = replace_suffix(regs_path, ".regs", ".sram");
                 found = 1'b1;
-            end else if (($value$plusargs("TEST_HEX=%s", hex_path) ||
-                          $value$plusargs("CPUTEST_HEX=%s", hex_path)) &&
-                         file_readable(replace_suffix(hex_path, ".hex", ".sram"))) begin
-                found_path = replace_suffix(hex_path, ".hex", ".sram");
-                found = 1'b1;
-            end else begin
+            end else if ($value$plusargs("TEST_HEX=%s", hex_path) ||
+                         $value$plusargs("CPUTEST_HEX=%s", hex_path)) begin
+                hex_plusarg_seen = 1'b1;
+                if (file_readable(replace_suffix(hex_path, ".hex", ".sram"))) begin
+                    found_path = replace_suffix(hex_path, ".hex", ".sram");
+                    found = 1'b1;
+                end
+            end
+
+            // Only use the module default when no explicit test hex was provided.
+            if (!found && !hex_plusarg_seen) begin
                 basename = replace_suffix(default_test_hex, ".hex", ".sram");
             end
         end
     endcase
 
-    if (!found && ($value$plusargs("TEST_DATA_DIR=%s", data_dir) ||
+    if (!found && basename.len() > 0 && ($value$plusargs("TEST_DATA_DIR=%s", data_dir) ||
                    $value$plusargs("CPUTEST_MEM_DIR=%s", data_dir)) &&
         file_readable({data_dir, "/", basename})) begin
         found_path = {data_dir, "/", basename};
         found = 1'b1;
     end
-    if (!found && file_readable(basename)) begin
+    if (!found && basename.len() > 0 && file_readable(basename)) begin
         found_path = basename;
         found = 1'b1;
     end
-    if (!found && file_readable({"mem/", basename})) begin
+    if (!found && basename.len() > 0 && file_readable({"mem/", basename})) begin
         found_path = {"mem/", basename};
         found = 1'b1;
     end
-    if (!found && file_readable({"../mem/", basename})) begin
+    if (!found && basename.len() > 0 && file_readable({"../mem/", basename})) begin
         found_path = {"../mem/", basename};
         found = 1'b1;
     end
-    if (!found && file_readable({"../../../../../cpu/mem/", basename})) begin
+    if (!found && basename.len() > 0 && file_readable({"../../../../../cpu/mem/", basename})) begin
         found_path = {"../../../../../cpu/mem/", basename};
         found = 1'b1;
     end
-    if (!found && file_readable({"../../../../../../cpu/mem/", basename})) begin
+    if (!found && basename.len() > 0 && file_readable({"../../../../../../cpu/mem/", basename})) begin
         found_path = {"../../../../../../cpu/mem/", basename};
         found = 1'b1;
     end

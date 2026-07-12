@@ -28,3 +28,27 @@ interface bus_slave_interface #(
         input  clk, rst_n, valid, wr_strobe, wr_data, addr
     );
 endinterface
+
+// Second port, with read-only access
+interface bus_slave_read_port #(
+    parameter int ADDR_MSB = 23
+);
+    // Bus Master Request
+    logic                valid;
+    logic [ADDR_MSB : 2] addr;
+
+    // Bus Slave Response
+    logic                rd_valid;
+    logic [31 : 0]       rd_data;
+    logic                error;
+
+    modport master (
+        output valid, addr,
+        input  rd_data, rd_valid, error
+    );
+
+    modport slave (
+        output rd_data, rd_valid, error,
+        input  valid, addr
+    );
+endinterface

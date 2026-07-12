@@ -356,7 +356,10 @@ module cpu_tb;
             // TODO: refactor this to be more flexible
             if (!irq_armed &&
                 dut.x_register_file[18] == 32'h0000_010d &&
-                dut.fetch_regs.current_pc == IRQ_WAIT_PC) begin
+                (dut.fetch_regs.fetch_pc == IRQ_WAIT_PC ||
+                 dut.fetch_regs.current_pc == IRQ_WAIT_PC ||
+                 (dut.decode_regs.valid && dut.decode_regs.current_pc == IRQ_WAIT_PC) ||
+                 (dut.execute_regs.valid && dut.execute_regs.current_pc == IRQ_WAIT_PC))) begin
                 irq_armed <= 1'b1;
                 ext_irq <= 1'b1;
             end else begin
@@ -376,6 +379,8 @@ module cpu_tb;
     end
 
     initial begin
+        int unsigned irq_wait_cycles;
+
         #0; // let plusarg/config initial block run first
         irq_test = $test$plusargs("CPUTEST_IRQ");
         rst_n = 1'b0;
@@ -385,7 +390,15 @@ module cpu_tb;
         rst_n = 1'b1;
 
         if (irq_test) begin
-            while (!irq_done) @(posedge clk);
+            irq_wait_cycles = 0;
+            while (!irq_done && irq_wait_cycles < run_cycles) begin
+                @(posedge clk);
+                irq_wait_cycles++;
+            end
+            if (!irq_done) begin
+                fail("timed out waiting for IRQ test to complete");
+                $finish;
+            end
             while (irq_settle_cycles < 200) @(posedge clk);
         end else begin
             repeat (run_cycles) @(posedge clk);
@@ -415,6 +428,7 @@ module cpu_tb;
         #(CLK_PERIOD * int'(run_cycles + 50000));
         if (!test_failed) begin
             fail("timed out waiting for CPU test firmware to complete");
+            $finish;
         end
     end
 

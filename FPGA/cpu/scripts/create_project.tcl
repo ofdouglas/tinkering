@@ -29,9 +29,15 @@ if {[file isdirectory $board_repo]} {
 set rtl_files [list \
     [file join $rtl_dir cpu_config_pkg.sv] \
     [file join $rtl_dir bus_interface.sv] \
+    [file join $rtl_dir rv32defs.sv] \
+    [file join $rtl_dir rv32cpu.sv] \
+    [file join $rtl_dir reset_control.sv] \
     [file join $rtl_dir block_rom.sv] \
+    [file join $rtl_dir block_sram.sv] \
+    [file join $rtl_dir gpio.sv] \
+    [file join $rtl_dir uart_periph.sv] \
+    [file join $rtl_dir system_peripherals.sv] \
     [file join $rtl_dir system.sv] \
-    [file join $rtl_dir picorv32.v] \
     $rtl_shared \
 ]
 add_files -norecurse $rtl_files
