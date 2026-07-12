@@ -10,7 +10,7 @@ package cpu_config_pkg;
     localparam int PERIPH_ADDR_MSB  = 7;    // [7:2]  -> 256 B
 
     // Memory regions (64 KiB each)
-    localparam logic [31:0] BOOT_ROM_BASE   = 32'h0000_0000;
+    localparam logic [31:0] BOOT_ROM_BASE   = 32'h0001_0000;
     localparam logic [31:0] SHARED_RAM_BASE = 32'h1000_0000;
     localparam logic [31:0] CPU0_PSR_BASE   = 32'h2000_0000;
     localparam logic [31:0] CPU0_DSR_BASE   = 32'h2100_0000;

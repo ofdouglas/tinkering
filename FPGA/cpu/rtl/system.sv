@@ -187,7 +187,10 @@ always_ff @(posedge clk) begin
     if (!system_rst_n) begin
         debug_leds <= '0;
     end else begin
-        debug_leds <= {memory_access_error, rom_trap, periph_trap, unaligned_write_trap};
+        debug_leds[3] <= memory_access_error  ? 1'b1 : debug_leds[3];
+        debug_leds[2] <= rom_trap             ? 1'b1 : debug_leds[2];
+        debug_leds[1] <= periph_trap          ? 1'b1 : debug_leds[1];
+        debug_leds[0] <= unaligned_write_trap ? 1'b1 : debug_leds[0];
     end
 end
 

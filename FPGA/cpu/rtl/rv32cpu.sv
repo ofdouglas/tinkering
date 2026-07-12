@@ -267,7 +267,7 @@ always_comb begin
         OPCODE_AUIPC: begin
             alu_ctrl.alu_left_src  = ALU_LEFT_SRC_PC;
             alu_ctrl.alu_right_src = ALU_RIGHT_SRC_IMM;
-            alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
+            alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
             wb_ctrl.writeback_en = 1'b1;
         end
         OPCODE_JAL: begin
