@@ -25,6 +25,13 @@ if {[file isdirectory $board_repo]} {
     puts "WARNING: board repo not found at $board_repo — continuing without board_part"
 }
 
+create_ip -name clk_wiz -vendor xilinx.com -library ip -module_name clk_wiz_0
+set_property -dict [list \
+    CONFIG.PRIM_IN_FREQ {100.000} \
+    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {50.000} \
+] [get_ips clk_wiz_0]
+generate_target all [get_ips clk_wiz_0]
+
 # Compile order: package -> interface -> modules (Vivado resolves deps via update_compile_order)
 set rtl_files [list \
     [file join $rtl_dir cpu_config_pkg.sv] \

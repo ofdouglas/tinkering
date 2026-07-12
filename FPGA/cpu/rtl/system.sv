@@ -1,17 +1,34 @@
 import cpu_config_pkg::*;
 
 module system(
-    input  logic clk,
+    input  logic clk_in,
     output logic [7:0] led,
     output logic uart_tx_out,
     input logic uart_rx_in
 );
 
 logic rst_n;
+logic clk;
+logic clk_locked;
+logic system_rst_n;
+assign system_rst_n = rst_n && clk_locked;
+
 reset_control reset_controller(
     .clk(clk),
     .rst_n(rst_n)
 );
+
+`ifdef VERILATOR
+assign clk = clk_in;
+assign clk_locked = 1'b1;
+`else
+clk_wiz_0 clk_wiz(
+    .clk_out1(clk),
+    .reset(1'b0),
+    .locked(clk_locked),
+    .clk_in1(clk_in)
+);
+`endif
 
 // Instruction ROM for the CPU (private access)
 bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_fetch();
@@ -28,7 +45,7 @@ logic [MEMORY_ADDR_MSB:2] rom_fetch_response_addr;
 logic rom_fetch_response_matches;
 
 always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (!system_rst_n) begin
         rom_fetch_response_addr <= '0;
     end else begin
         rom_fetch_response_addr <= rom_fetch.addr;
@@ -136,7 +153,7 @@ end
 
 
 assign rom_fetch.clk   = clk;
-assign rom_fetch.rst_n = rst_n;
+assign rom_fetch.rst_n = system_rst_n;
 assign rom_fetch.valid = 1'b1;
 assign rom_fetch.wr_strobe = '0;
 assign rom_fetch.wr_data = '0;
@@ -145,14 +162,14 @@ assign rom_alt_port.addr = address_bus[MEMORY_ADDR_MSB:2];
 assign rom_trap = rom_fetch.error || rom_alt_port.error;
 
 assign sram_bus.clk   = clk;
-assign sram_bus.rst_n = rst_n;
+assign sram_bus.rst_n = system_rst_n;
 assign sram_bus.valid = region_ram && cpu_request;
 assign sram_bus.wr_strobe = byte_enables;
 assign sram_bus.wr_data = data_write_bus;
 assign sram_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
 
 assign periph_bus.clk   = clk;
-assign periph_bus.rst_n = rst_n;
+assign periph_bus.rst_n = system_rst_n;
 assign periph_bus.valid = region_periph && cpu_request;
 assign periph_bus.wr_strobe = byte_enables;
 assign periph_bus.wr_data = data_write_bus;
@@ -167,7 +184,7 @@ assign cpu_trap = memory_access_error || rom_trap;
 
 // Latch HW faults
 always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (!system_rst_n) begin
         debug_leds <= '0;
     end else begin
         debug_leds <= {memory_access_error, rom_trap, periph_trap, unaligned_write_trap};
@@ -176,7 +193,7 @@ end
 
 rv32cpu cpu(
     .clk               (clk),
-    .rst_n             (rst_n),
+    .rst_n             (system_rst_n),
     .instruction_fetch (rom_fetch.rd_data),
     .fetch_addr        (rom_fetch.addr),
     .fetch_valid       (rom_fetch_response_matches),

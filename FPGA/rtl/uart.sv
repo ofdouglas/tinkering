@@ -16,8 +16,8 @@ module uart #(parameter kLoopback = 0)(
     input  logic       rx_in
     );
 
-    // 16x oversampled 115200 baud from 100 MHz clock
-    localparam kClockDivisionFactor = 54;
+    // 16x oversampled 115200 baud from 50 MHz clock
+    localparam kClockDivisionFactor = 27;
     localparam kOversamplingFactor = 16;
     logic [9:0] clock_div_counter = 0;
     logic [3:0] oversampling_counter = 0;
