@@ -4,7 +4,7 @@ import test_data_pkg::*;
 
 module cpu_tb;
 
-    localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
+    localparam time CLK_PERIOD = 20ns;  // 50 MHz, matches (divided by 2) sys clock in system.sv
     localparam int ROM_ADDR_BITS = 10;  // 4 KiB instruction ROM, matches linker.ld
     localparam int ROM_WORDS = 2 ** ROM_ADDR_BITS;
     localparam int DATA_ADDR_BITS = 10; // 4 KiB data SRAM, matches cpu_config_pkg

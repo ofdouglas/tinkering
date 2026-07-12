@@ -17,6 +17,17 @@ _start:
      * Handler bumps mepc by 4 so mret resumes at the fall-through addi.
      * ================================================================ */
 
+    /* Invalid target of a not-taken branch must not trap. */
+    addi  x21, x0,  0x771             /* verify x21 = not-taken pre-marker */
+    bne   x0,  x0,  not_taken_invalid_target
+    addi  x22, x0,  0x772             /* verify x22 = not-taken fall-through marker */
+    jal   x0,  not_taken_invalid_done
+not_taken_invalid_target:
+    .word 0x0000007f
+    addi  x21, x0,  -1
+not_taken_invalid_done:
+    addi  x23, x0,  0x773             /* verify x23 = not-taken done marker */
+
     /* WFI (not implemented) */
     addi  x4,  x0,  0x111             /* verify x4  = pre-WFI marker */
     .word 0x10500073                   /* wfi */
@@ -51,7 +62,7 @@ _start:
 _exception_entry:
     lui   x15, %hi(0x00011e2a)
     addi  x15, x15, %lo(0x00011e2a)  /* verify x15 = illegal-handler marker */
-    csrrs x2,  mepc, x0               /* verify x2  = last illegal PC (0x44) */
+    csrrs x2,  mepc, x0               /* verify x2  = last illegal PC */
     addi  x3,  x2,  4
     csrrw x0,  mepc, x3
     csrrs x14, mcause, x0             /* verify x14 = 0x00000002 (illegal inst) */

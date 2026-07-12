@@ -4,8 +4,8 @@ import test_data_pkg::*;
 
 module system_tb;
 
-    localparam time CLK_PERIOD = 20ns;  // 50 MHz, matches Nexys Video sysclk
-    localparam time UART_BIT_PERIOD = CLK_PERIOD * 27 * 16;
+    localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
+    localparam time UART_BIT_PERIOD = (CLK_PERIOD * 2) * 27 * 16; // x2 for 100->50 MHz conversion
     localparam time TEST_TIMEOUT = 2ms;
     localparam int SYSTEM_SRAM_WORDS = 2 ** (MEMORY_ADDR_MSB - 1);
 
