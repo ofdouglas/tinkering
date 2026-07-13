@@ -1,7 +1,7 @@
 import cpu_config_pkg::*;
 
 module system_peripherals #(
-    parameter int ADDR_MSB = PERIPH_ADDR_MSB + 1
+    parameter int ADDR_MSB = PERIPH_ADDR_MSB + 2
 ) (
     bus_slave_interface.slave bus,
     
@@ -10,25 +10,22 @@ module system_peripherals #(
 
     // UART (Debug UART)
     output logic        uart_tx_out,
-    input  logic        uart_rx_in
+    input  logic        uart_rx_in,
 
     // RISC-V Machine Timer (Timer/Counter)
-    // output logic        mti_irq
+    output logic        mti_irq
 );
 
-localparam logic [ADDR_MSB:PERIPH_ADDR_MSB+1] PERIPH_GPIO = '0;
-localparam logic [ADDR_MSB:PERIPH_ADDR_MSB+1] PERIPH_UART = 'd1;
+localparam logic [1:0] PERIPH_GPIO = 2'd0;
+localparam logic [1:0] PERIPH_UART = 2'd1;
+localparam logic [1:0] PERIPH_RV32_MACHINE_TIMERS = 2'd2;
 
-// RISC-V Machine Timer Registers
-// bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) rv32_machine_timer_bus();
-// rv32_machine_timers rv32_machine_timers (
-//     .bus(rv32_machine_timer_bus.slave),
-//     .timer_low_value(timer_low_value),
-//     .timer_high_value(timer_high_value),
-//     .mti_irq(mti_irq)
-// );
-// assign rv32_machine_timers.clk = bus.clk;
-// assign rv32_machine_timers.rst_n = bus.rst_n;
+// RISC-V Machine Timer
+bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) rv32_machine_timer_bus();
+rv32_machine_timers rv32_machine_timer (
+    .bus(rv32_machine_timer_bus.slave),
+    .mti_irq(mti_irq)
+);
 
 // GPIO (LED control)
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) gpio_bus();
@@ -45,12 +42,14 @@ uart_periph uart0 (
     .uart_rx_in(uart_rx_in)
 );
 
+assign rv32_machine_timer_bus.clk = bus.clk;
+assign rv32_machine_timer_bus.rst_n = bus.rst_n;
 assign gpio_bus.clk = bus.clk;
 assign gpio_bus.rst_n = bus.rst_n;
 assign uart_bus.clk = bus.clk;
 assign uart_bus.rst_n = bus.rst_n;
 
-logic [ADDR_MSB:PERIPH_ADDR_MSB+1] peripheral_select;
+logic [1:0] peripheral_select;
 logic [PERIPH_ADDR_MSB:2] periph_reg_offset;
 
 assign peripheral_select = bus.addr[ADDR_MSB:PERIPH_ADDR_MSB+1];
@@ -67,10 +66,10 @@ assign uart_bus.valid     = (peripheral_select == PERIPH_UART) ? bus.valid     :
 assign uart_bus.wr_strobe = (peripheral_select == PERIPH_UART) ? bus.wr_strobe : 4'b0000;
 assign uart_bus.wr_data   = (peripheral_select == PERIPH_UART) ? bus.wr_data   : '0;
 
-// assign rv32_machine_timer_bus.slave.addr      = periph_reg_offset;
-// assign rv32_machine_timer_bus.slave.valid     = (peripheral_select == PERIPH_RV32_MACHINE_TIMERS) ? bus.valid     : 1'b0;
-// assign rv32_machine_timer_bus.slave.wr_strobe = (peripheral_select == PERIPH_RV32_MACHINE_TIMERS) ? bus.wr_strobe : 4'b0000;
-// assign rv32_machine_timer_bus.slave.wr_data   = (peripheral_select == PERIPH_RV32_MACHINE_TIMERS) ? bus.wr_data   : 32'bX;
+assign rv32_machine_timer_bus.addr      = periph_reg_offset;
+assign rv32_machine_timer_bus.valid     = (peripheral_select == PERIPH_RV32_MACHINE_TIMERS) ? bus.valid     : 1'b0;
+assign rv32_machine_timer_bus.wr_strobe = (peripheral_select == PERIPH_RV32_MACHINE_TIMERS) ? bus.wr_strobe : 4'b0000;
+assign rv32_machine_timer_bus.wr_data   = (peripheral_select == PERIPH_RV32_MACHINE_TIMERS) ? bus.wr_data   : '0;
 
 // Peripheral bus mux
 always_comb begin
@@ -92,12 +91,12 @@ always_comb begin
             bus.rd_valid = uart_bus.rd_valid;
             bus.error    = uart_bus.error;
         end
-        // PERIPH_RV32_MACHINE_TIMERS: begin
-        //     bus.wr_ack   = rv32_machine_timer_bus.wr_ack;
-        //     bus.rd_data  = rv32_machine_timer_bus.rd_data;
-        //     bus.rd_valid = rv32_machine_timer_bus.rd_valid;
-        //     bus.error    = rv32_machine_timer_bus.error;
-        // end
+        PERIPH_RV32_MACHINE_TIMERS: begin
+            bus.wr_ack   = rv32_machine_timer_bus.wr_ack;
+            bus.rd_data  = rv32_machine_timer_bus.rd_data;
+            bus.rd_valid = rv32_machine_timer_bus.rd_valid;
+            bus.error    = rv32_machine_timer_bus.error;
+        end
         default: begin
             bus.error    = bus.valid;
             bus.wr_ack   = 1'b0;

@@ -19,7 +19,11 @@ reset_control reset_controller(
 );
 
 `ifdef VERILATOR
-assign clk = clk_in;
+logic verilator_clk_div = 1'b0;
+always_ff @(posedge clk_in) begin
+    verilator_clk_div <= ~verilator_clk_div;
+end
+assign clk = verilator_clk_div;
 assign clk_locked = 1'b1;
 `else
 clk_wiz_0 clk_wiz(
@@ -62,14 +66,16 @@ block_sram #(.WORD_ADDR_BITS(MEMORY_ADDR_MSB-1)) cpu_sram (
 // TODO: get rid of debug LEDs once we have better signaling for HW faults
 logic [7:0] gpio_led_enables;
 logic [3:0] debug_leds;
+logic mti_irq;
 
 // Peripheral bus
-bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+1)) periph_bus();
-system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+1)) peripherals (
+bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) periph_bus();
+system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) peripherals (
     .bus(periph_bus.slave),
     .sys_gpio_led_enables(gpio_led_enables),
     .uart_tx_out(uart_tx_out),
-    .uart_rx_in(uart_rx_in)
+    .uart_rx_in(uart_rx_in),
+    .mti_irq(mti_irq)
 );
 assign led = {debug_leds, gpio_led_enables[3:0]};
 
@@ -173,7 +179,7 @@ assign periph_bus.rst_n = system_rst_n;
 assign periph_bus.valid = region_periph && cpu_request;
 assign periph_bus.wr_strobe = byte_enables;
 assign periph_bus.wr_data = data_write_bus;
-assign periph_bus.addr = address_bus[PERIPH_ADDR_MSB+1:2];
+assign periph_bus.addr = address_bus[PERIPH_ADDR_MSB+2:2];
 
 
 assign memory_access_error = cpu_request &&
@@ -200,7 +206,7 @@ rv32cpu cpu(
     .instruction_fetch (rom_fetch.rd_data),
     .fetch_addr        (rom_fetch.addr),
     .fetch_valid       (rom_fetch_response_matches),
-    .ext_irq           (1'b0),
+    .ext_irq           (mti_irq),
     .valid             (cpu_request),
     .wr_strobe         (byte_enables),
     .wr_data           (data_write_bus),

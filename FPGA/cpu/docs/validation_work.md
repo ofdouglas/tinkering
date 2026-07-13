@@ -15,6 +15,7 @@
 
 ## Gaps to close (asm / sim)
 
+- **TODO** - Add an integration smoke that exercises callee-saved register save/restore across a call that performs multi-cycle memory accesses (or timer writes/reads). Run it with simulated memory latency (e.g. MEM_LATENCY>1) and verify: (1) callee-saved registers are preserved after return, (2) the stack slot contents match the saved value, and (3) no stale rd_valid/rd_data or wr_ack responses are consumed by the CPU.
 - **Test completion contract** — define SRAM/MMIO status words so firmware can signal pass/fail/done instead of relying on fixed cycle counts; use it from ASM and C tests, with the existing timeout as fallback.
 - **Shared testbench utility layer** — keep growing `test_data_pkg.sv` / `test_sram_block.sv` for reusable path handling and SRAM expected checks while keeping CPU-specific debug, IRQ, and register checks local to `cpu_tb`.
 - **Component-oriented SoC integration tests** — add small system firmwares/tests for UART RX/TX, GPIO, timer IRQ, and bus/peripheral behavior; use optional SRAM expected files for side effects such as copied UART input.

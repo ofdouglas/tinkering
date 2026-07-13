@@ -680,19 +680,24 @@ end
 ///////////////////////////////////////////////////////////////////////////////
 logic [3:0] byte_lanes;
 logic [31:0] shifted_wr_data, shifted_rd_data;
+logic mem_response_wait;
+logic mem_stage_is_load;
+logic mem_stage_is_store;
+logic mem_response_ready;
 
 assign valid = execute_regs.valid && execute_regs.mem_ctrl.memory_request;
 assign wr_data = shifted_wr_data;
 assign addr = execute_regs.exec_result[31:2];
 assign wr_strobe = (execute_regs.valid && execute_regs.mem_ctrl.memory_write) ? byte_lanes : '0;
+assign mem_stage_is_store = execute_regs.valid && execute_regs.mem_ctrl.memory_request && execute_regs.mem_ctrl.memory_write;
+assign mem_stage_is_load = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !execute_regs.mem_ctrl.memory_write;
+assign mem_response_ready = (mem_stage_is_store && wr_ack) || (mem_stage_is_load && rd_valid);
 
 always_comb begin
     logic [31:0] rs2_reg_mux;
     logic  mem_wb_hazard;
     mem_size_e mem_size;
     logic      zero_extend;
-    logic      is_load;
-    logic      is_store;
 
     mem_wb_hazard = memory_regs.valid && memory_regs.wb_ctrl.writeback_en && memory_regs.wb_ctrl.rd_reg_select != '0;
     if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == execute_regs.rs2_index) begin
@@ -703,10 +708,8 @@ always_comb begin
 
     mem_size = mem_size_e'(execute_regs.funct_3[1:0]);
     zero_extend = (execute_regs.funct_3[2] == LOAD_UNSIGNED);
-    is_store = execute_regs.valid && execute_regs.mem_ctrl.memory_write;
-    is_load = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !is_store;
 
-    cpu_ctrl.mem_stall = (is_store && !wr_ack) || (is_load && !rd_valid);
+    cpu_ctrl.mem_stall = (mem_stage_is_store || mem_stage_is_load) && (!mem_response_wait || !mem_response_ready);
     cpu_ctrl.mem_unaligned = 1'b0; // TODO:
     cpu_ctrl.bus_error = 1'b0; // TODO:
 
@@ -740,6 +743,18 @@ always_comb begin
         4'b1111 : shifted_rd_data = rd_data;
         default : shifted_rd_data = rd_data;
     endcase
+end
+
+always_ff @(posedge clk) begin
+    if (!rst_n) begin
+        mem_response_wait <= 1'b0;
+    end else if (!execute_regs.valid || !execute_regs.mem_ctrl.memory_request) begin
+        mem_response_wait <= 1'b0;
+    end else if (!mem_response_wait) begin
+        mem_response_wait <= 1'b1;
+    end else if (mem_response_ready) begin
+        mem_response_wait <= 1'b0;
+    end
 end
 
 always_ff @(posedge clk) begin
