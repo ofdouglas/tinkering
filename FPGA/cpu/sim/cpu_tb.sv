@@ -36,7 +36,8 @@ module cpu_tb;
     logic invalid_addr;
     logic invalid_region;
     logic error;
-    logic ext_irq;
+    logic mei_irq;
+    logic mti_irq;
     bit irq_test = 1'b0;
     bit irq_armed = 1'b0;
     bit irq_done = 1'b0;
@@ -138,7 +139,8 @@ module cpu_tb;
         .rd_data (rd_data),
         .wr_ack (wr_ack),
         .error (error),
-        .ext_irq (ext_irq)
+        .mei_irq (mei_irq),
+        .mti_irq (mti_irq)
     );
 
     task automatic load_cpu_test_data(input test_data_kind_e kind, output bit loaded);
@@ -348,7 +350,8 @@ module cpu_tb;
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            ext_irq <= 1'b0;
+            mei_irq <= 1'b0;
+            mti_irq <= 1'b0;
             irq_armed <= 1'b0;
             irq_done <= 1'b0;
             irq_settle_cycles <= 0;
@@ -361,9 +364,9 @@ module cpu_tb;
                  (dut.decode_regs.valid && dut.decode_regs.current_pc == IRQ_WAIT_PC) ||
                  (dut.execute_regs.valid && dut.execute_regs.current_pc == IRQ_WAIT_PC))) begin
                 irq_armed <= 1'b1;
-                ext_irq <= 1'b1;
+                mei_irq <= 1'b1;
             end else begin
-                ext_irq <= 1'b0;
+                mei_irq <= 1'b0;
             end
 
             if (irq_armed && dut.x_register_file[9] == 32'h0000_00FF) begin
@@ -374,7 +377,7 @@ module cpu_tb;
                 irq_settle_cycles <= irq_settle_cycles + 1;
             end
         end else begin
-            ext_irq <= 1'b0;
+            mei_irq <= 1'b0;
         end
     end
 
@@ -384,7 +387,8 @@ module cpu_tb;
         #0; // let plusarg/config initial block run first
         irq_test = $test$plusargs("CPUTEST_IRQ");
         rst_n = 1'b0;
-        ext_irq = 1'b0;
+        mei_irq = 1'b0;
+        mti_irq = 1'b0;
         repeat (4) @(posedge clk);
         @(negedge clk);
         rst_n = 1'b1;

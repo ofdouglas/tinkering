@@ -66,7 +66,10 @@ block_sram #(.WORD_ADDR_BITS(MEMORY_ADDR_MSB-1)) cpu_sram (
 // TODO: get rid of debug LEDs once we have better signaling for HW faults
 logic [7:0] gpio_led_enables;
 logic [3:0] debug_leds;
+logic [63:0] mtime;
 logic mti_irq;
+logic mei_irq;
+assign mei_irq = 1'b0;
 
 // Peripheral bus
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) periph_bus();
@@ -75,7 +78,8 @@ system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) peripherals (
     .sys_gpio_led_enables(gpio_led_enables),
     .uart_tx_out(uart_tx_out),
     .uart_rx_in(uart_rx_in),
-    .mti_irq(mti_irq)
+    .mti_irq(mti_irq),
+    .mtime(mtime)
 );
 assign led = {debug_leds, gpio_led_enables[3:0]};
 
@@ -206,7 +210,8 @@ rv32cpu cpu(
     .instruction_fetch (rom_fetch.rd_data),
     .fetch_addr        (rom_fetch.addr),
     .fetch_valid       (rom_fetch_response_matches),
-    .ext_irq           (mti_irq),
+    .mti_irq           (mti_irq),
+    .mei_irq           (mei_irq),
     .valid             (cpu_request),
     .wr_strobe         (byte_enables),
     .wr_data           (data_write_bus),

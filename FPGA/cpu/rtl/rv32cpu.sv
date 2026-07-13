@@ -9,7 +9,8 @@ module rv32cpu #(
     input  logic [31 : 0]       instruction_fetch,
     output logic [31 : 2]       fetch_addr,
     input  logic                fetch_valid,
-    input  logic                ext_irq,
+    input  logic                mei_irq, // MEI IRQ
+    input  logic                mti_irq, // Machine Timer IRQ
 
     // CPU -> Bus Request
     output logic                valid,
@@ -42,10 +43,11 @@ MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 ///////////////////////////////////////////////////////////////////////////////
 CpuControl         cpu_ctrl;
 
-logic external_interrupt;
-assign external_interrupt = ext_irq &&
-                            machine_special_regs.mstatus.mie &&
-                            machine_special_regs.mie.mei_enable;
+
+logic mti_armed, mei_armed, external_interrupt;
+assign mti_armed = mti_irq && machine_special_regs.mie.mti_enable;
+assign mei_armed = mei_irq && machine_special_regs.mie.mei_enable;
+assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed);
 
 logic exception_entry;
 assign exception_entry = cpu_ctrl.decode_trap || external_interrupt || cpu_ctrl.illegal_instruction;
@@ -815,8 +817,11 @@ always_comb begin
             cpu_ctrl.decode_trap,
             cpu_ctrl.exception_return
         };
-    end else if (external_interrupt) begin
+    end else if (external_interrupt && mei_armed) begin
         mcause_data = write_mcause(1, IRQ_SRC_MEI);
+        mtval_data = '0;
+    end else if (external_interrupt && mti_armed) begin
+        mcause_data = write_mcause(1, IRQ_SRC_MTI);
         mtval_data = '0;
     end else begin
         mcause_data = machine_special_regs.mcause;
@@ -835,6 +840,9 @@ always_ff @(posedge clk) begin
     csr_writeback_en = execute_regs.valid && execute_regs.wb_ctrl.csr_writeback_en;
     csr_class_bits   = execute_regs.wb_ctrl.csr_address[11:8];
     csr_offset_bits  = execute_regs.wb_ctrl.csr_address[7:0];
+
+    machine_special_regs.mip.mei_pending <= mei_irq;
+    machine_special_regs.mip.mti_pending <= mti_irq;
 
     if (!rst_n) begin
         machine_special_regs.mstatus <= '0;

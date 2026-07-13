@@ -1,7 +1,7 @@
 PREFIX = riscv64-unknown-elf-
 CPU_DIR = ..
 FPGA_DIR = $(CPU_DIR)/..
-ARCH   = -march=rv32i -mabi=ilp32
+ARCH   = -march=rv32i_zicsr -mabi=ilp32
 CFLAGS = $(ARCH) -Os -ffreestanding -nostdlib
 LDFLAGS = $(ARCH) -T linker.ld -nostdlib
 # ELF addresses start at BOOT_ROM 0x00010000; make the Verilog image array-relative.

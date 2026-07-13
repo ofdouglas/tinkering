@@ -13,7 +13,8 @@ module system_peripherals #(
     input  logic        uart_rx_in,
 
     // RISC-V Machine Timer (Timer/Counter)
-    output logic        mti_irq
+    output logic        mti_irq,
+    output logic [63:0] mtime
 );
 
 localparam logic [1:0] PERIPH_GPIO = 2'd0;
@@ -24,7 +25,8 @@ localparam logic [1:0] PERIPH_RV32_MACHINE_TIMERS = 2'd2;
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) rv32_machine_timer_bus();
 rv32_machine_timers rv32_machine_timer (
     .bus(rv32_machine_timer_bus.slave),
-    .mti_irq(mti_irq)
+    .mti_irq(mti_irq),
+    .mtime(mtime)
 );
 
 // GPIO (LED control)

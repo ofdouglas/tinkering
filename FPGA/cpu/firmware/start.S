@@ -1,4 +1,3 @@
-
 .section .text
 .global _start
 
@@ -35,10 +34,52 @@ _copy_loop:
     blt  x21, x22, _copy_loop
 _copy_done:
 
+_enable_irq:
+    lui  t0, %hi(_exception_handler)
+    addi t0, t0, %lo(_exception_handler)
+    csrrw  x0, mtvec, t0
+    addi   t0, x0, 128
+    csrrs  x0, mie, t0          /* Enable machine timer IRQ */ 
+    csrrsi x0, mstatus, 8       /* Global interrupt enable  */ 
+
+_jump_main:
     jal main
 1:  j 1b
 
-.global _trap_handler
+
+.section .data
+.global _mtime_isr_counter
+_mtime_isr_counter: .word 0
+
+.section .text
+.global _exception_handler
+
+
+_exception_handler:
+    addi x31, x0, -3
+    sw t0, -4(sp)
+    sw t1, -8(sp)
+
+    /* Determine trap vs ISR */
+    csrrs t0, mcause, x0
+    lui   t1, 0x80000
+    and   t1, t1, t0
+    bne   t1, x0, _isr_handler
 
 _trap_handler:
-    beq x0, x0, _trap_handler
+    /* TODO */
+    addi x30, x0, 42
+    j _trap_handler
+
+_isr_handler:
+    /* MTI handler */
+    addi x30, x0, -4
+    la t0, _mtime_isr_counter
+    lw t1,  0(t0)
+    addi t1, t1, 1
+    sw t1,  0(t0)
+    csrrci x0, mstatus, 8       /* Global interrupt disable  */ 
+
+    lw t1, -8(sp)
+    lw t0, -4(sp)
+    mret

@@ -1,5 +1,6 @@
 module rv32_machine_timers (
     bus_slave_interface.slave bus,
+    output logic [63:0] mtime,
     output logic mti_irq
 );
 
@@ -20,6 +21,7 @@ always_ff @(posedge bus.clk) begin
         timer_value <= '0;
         comp_value  <= '1;
         mti_irq     <= 0;
+        mtime       <= '0;
         bus.error   <= 1'b0;
         bus.wr_ack  <= 1'b0;
         bus.rd_valid <= 1'b0;
@@ -80,6 +82,7 @@ always_ff @(posedge bus.clk) begin
         // Update the timer and interrupt status
         mti_irq <= (timer_value >= comp_value);
         timer_value <= timer_value + 1;
+        mtime       <= {8'h00, timer_value};
     end
 end
 
