@@ -1,5 +1,5 @@
-#include "time.h"
-#include "mem_map.h"
+#include "drivers/time.h"
+#include "linker/mem_map.h"
 
 #define MTIM_TIME_LOW_REG  ((volatile uint32_t*)(MTIM_BASE + 0))
 #define MTIM_TIME_HIGH_REG ((volatile uint32_t*)(MTIM_BASE + 4))

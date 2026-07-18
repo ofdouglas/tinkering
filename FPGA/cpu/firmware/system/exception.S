@@ -1,7 +1,3 @@
-.section .data
-.global _mtime_isr_counter
-_mtime_isr_counter: .word 0
-
 .section .text
 .global _exception_handler
 

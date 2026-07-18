@@ -2,8 +2,9 @@ PREFIX = riscv64-unknown-elf-
 CPU_DIR = ..
 FPGA_DIR = $(CPU_DIR)/..
 ARCH   = -march=rv32i_zicsr -mabi=ilp32
-CFLAGS = $(ARCH) -Os -ffreestanding -nostdlib
-LDFLAGS = $(ARCH) -T linker.ld -nostdlib -Wl,--print-memory-usage
+INC_DIRS = . $(sort $(patsubst %/,%,$(dir $(wildcard */*.h))))
+CFLAGS = $(ARCH) -Os -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
+LDFLAGS = $(ARCH) -T linker/linker.ld -nostdlib -Wl,--print-memory-usage
 # ELF addresses start at BOOT_ROM 0x00010000; make the Verilog image array-relative.
 HEX_ADDR_OFFSET = -0x00010000
 BUILD_DIR = build
@@ -12,11 +13,12 @@ FIRMWARE_ELF = $(BUILD_DIR)/firmware.elf
 FIRMWARE_HEX = $(BUILD_DIR)/firmware.hex
 FIRMWARE_LST = $(BUILD_DIR)/firmware.lst
 FIRMWARE_MAP = $(BUILD_DIR)/firmware.map
-C_SRCS = $(wildcard *.c)
-ASM_SRCS = start.S
+C_SRCS = $(wildcard *.c */*.c)
+ASM_SRCS = $(wildcard *.S */*.S)
 OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRCS)) \
        $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SRCS))
-FW_DEPS = $(wildcard *.c *.s *.S *.h *.ld)
+FW_DEPS = $(wildcard *.c *.s *.S *.h *.ld) \
+          $(wildcard */*.c */*.h */*.s */*.S */*.ld)
 SYSTEM_SIM_DIR = $(BUILD_DIR)/system_tb
 SYSTEM_SIM_BIN = $(SYSTEM_SIM_DIR)/Vsystem_tb
 VIVADO_BAT ?= $(lastword $(wildcard /mnt/c/Xilinx/Vivado/*/bin/vivado.bat))
@@ -72,9 +74,11 @@ $(FIRMWARE_ELF): $(OBJS) $(FW_DEPS)
 	$(PREFIX)gcc $(LDFLAGS) -o $@ $(OBJS) -lgcc
 
 $(BUILD_DIR)/%.o: %.S $(FW_DEPS) | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
 	$(PREFIX)gcc $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: %.c $(FW_DEPS) | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
 	$(PREFIX)gcc $(CFLAGS) -c $< -o $@
 
 $(SYSTEM_SIM_BIN): $(SYSTEM_TB_SRCS) $(HEX_INSTALL) | $(SYSTEM_SIM_DIR)
