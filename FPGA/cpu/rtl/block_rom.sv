@@ -1,6 +1,6 @@
 // Dual-port Block ROM
 module block_rom #(
-    parameter int WORD_ADDR_BITS = 10,
+    parameter int WORD_ADDR_BITS = 11,
     parameter int ADDR_MSB = WORD_ADDR_BITS + 1
 ) (
     bus_slave_interface.slave bus_main,

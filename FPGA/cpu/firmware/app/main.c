@@ -7,7 +7,13 @@
 void hello_message(void) {
     const char* const kHelloMsg = "Hello!\n";
     const uint32_t kHelloMsgLen = 7U;
-    uart_send_string(kHelloMsg, kHelloMsgLen);
+    uart_send_string_blocking(kHelloMsg, kHelloMsgLen);
+}
+
+void toggle_led1(void) {
+    static bool led_on = true;
+    gpio_set_led(1, led_on);
+    led_on = !led_on;
 }
 
 int main(void) {
@@ -17,15 +23,11 @@ int main(void) {
     mtim_delay_ns_irq(NS_PER_MICROSEC * 100U);
     gpio_set_led(0, false);
     
-    // Toggle LED1 at 1 Hz forever
-    bool led_on = false;
-    while (1) {
-        led_on = !led_on;
-        gpio_set_led(1, led_on);
+    hello_message();
 
-        if (led_on) {
-            hello_message();
-        }
+    // Toggle LED1 at 1 Hz forever
+    while (1) {
+        toggle_led1();
         mtim_delay_ns(NS_PER_MILLISEC * 500U);
     }
 

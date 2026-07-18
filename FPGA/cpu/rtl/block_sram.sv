@@ -1,5 +1,5 @@
 module block_sram #(
-    parameter int WORD_ADDR_BITS = 10
+    parameter int WORD_ADDR_BITS = 11
 ) (
     bus_slave_interface.slave bus
 );

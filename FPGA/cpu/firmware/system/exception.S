@@ -18,12 +18,5 @@ _trap_handler:
 
 _isr_handler:
     /* MTI handler */
-    la t0, _mtime_isr_counter
-    lw t1,  0(t0)
-    addi t1, t1, 1
-    sw t1,  0(t0)
-    csrrci x0, mstatus, 8       /* Global interrupt disable  */ 
-
-    lw t1, -8(sp)
-    lw t0, -4(sp)
+    j mtim_isr
     mret

@@ -5,11 +5,11 @@
 #define PERIPH_ADDR_MSB 7
 
 #define ROM_BASE   0x00010000
-#define ROM_SIZE   0x00001000
+#define ROM_SIZE   0x00002000
 #define ROM_END    (ROM_BASE + ROM_SIZE)
 
 #define RAM_BASE   0x10000000
-#define RAM_SIZE   0x00001000
+#define RAM_SIZE   0x00002000
 #define RAM_END    (RAM_BASE + RAM_SIZE)
 
 #define PERIPH_BASE 0x80000000
