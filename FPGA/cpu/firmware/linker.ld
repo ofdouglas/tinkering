@@ -10,6 +10,8 @@ SECTIONS {
     .text : 
     { 
         . = ALIGN(4);
+        *(.startup_text*)
+        . = ALIGN(4);
         *(.text*)
         . = ALIGN(4);
         *(.rodata*)
