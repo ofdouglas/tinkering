@@ -6,8 +6,15 @@
 
 void uart_send_string_blocking(const char* str, const uint32_t length);
 
+void uart_send_byte_blocking(uint8_t data);
+
 bool uart_putchar_nonblocking(char c);
 
 int uart_getchar_nonblocking(void);
+
+void uart_rx_init(void);
+
+bool uart_receive_byte(uint8_t* data);
+
 
 #endif

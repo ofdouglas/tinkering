@@ -15,6 +15,7 @@ module system_tb;
     logic [7:0] led;
     logic uart_tx_out;
     logic uart_rx_in;
+    logic [7:0] uart_rx_queue [$]; // Queue of received UART bytes
     logic led0_seen, led0_done, led0_pulse_ok;
     logic led1_seen;
     logic uart_seen;
@@ -102,15 +103,21 @@ module system_tb;
         $display("system_tb:   csr   mtime = 0x%016x",  dut.mtime);
         $display("system_tb:   csr   mtime_compare = 0x%016x", dut.peripherals.rv32_machine_timer.comp_value);
         $display("system_tb:   --- integer registers ---");
-        $display("system_tb:   x0 =0x00000000 x1 =0x%08x x2 =0x%08x x3 =0x%08x",
-            dut.cpu.x_register_file[1], dut.cpu.x_register_file[2], dut.cpu.x_register_file[3]);
-        for (int i = 4; i < 32; i += 4) begin
-            $display("system_tb:   x%0d=0x%08x x%0d=0x%08x x%0d=0x%08x x%0d=0x%08x",
-                i,     dut.cpu.x_register_file[i],
-                i + 1, dut.cpu.x_register_file[i + 1],
-                i + 2, dut.cpu.x_register_file[i + 2],
-                i + 3, dut.cpu.x_register_file[i + 3]);
+        for (int i = 0; i < 32; i += 4) begin
+            $display("system_tb:   %4s=0x%08x %4s=0x%08x %4s=0x%08x %4s=0x%08x",
+                abi_name(i),     dut.cpu.x_register_file[i],
+                abi_name(i + 1), dut.cpu.x_register_file[i + 1],
+                abi_name(i + 2), dut.cpu.x_register_file[i + 2],
+                abi_name(i + 3), dut.cpu.x_register_file[i + 3]);
         end
+        $display("SRAM contents:");
+        for (int address = 0; address < 64; address += 4) begin
+            $display("system_tb:   %0d: 0x%08x 0x%08x 0x%08x 0x%08x", address * 4, 
+                dut.cpu_sram.sram_word_array[address], dut.cpu_sram.sram_word_array[address + 1],
+                dut.cpu_sram.sram_word_array[address + 2], dut.cpu_sram.sram_word_array[address + 3]);
+        end
+
+
         $display("system_tb: --- end CPU context ---");
     endtask
 
@@ -121,6 +128,7 @@ module system_tb;
         test_failed = 1'b1;
         $display("[%0t] FAIL: %s", $time, message);
         dump_cpu_context();
+        dump_uart_buffer();
         $error("[%0t] system_tb failed", $time);
         $finish;
     endtask
@@ -134,7 +142,48 @@ module system_tb;
             4: expected_uart_byte = "o";
             5: expected_uart_byte = "!";
             6: expected_uart_byte = "\n";
+            7: expected_uart_byte = "H";
+            8: expected_uart_byte = "i";
+            9: expected_uart_byte = ".";
             default: expected_uart_byte = 8'h00;
+        endcase
+    endfunction
+
+    function automatic string abi_name(input int reg_idx);
+        unique case (reg_idx)
+            0:  abi_name = "zero";
+            1:  abi_name = "ra";
+            2:  abi_name = "sp";
+            3:  abi_name = "gp";
+            4:  abi_name = "tp";
+            5:  abi_name = "t0";
+            6:  abi_name = "t1";
+            7:  abi_name = "t2";
+            8:  abi_name = "s0";
+            9:  abi_name = "s1";
+            10: abi_name = "a0";
+            11: abi_name = "a1";
+            12: abi_name = "a2";
+            13: abi_name = "a3";
+            14: abi_name = "a4";
+            15: abi_name = "a5";
+            16: abi_name = "a6";
+            17: abi_name = "a7";
+            18: abi_name = "s2";
+            19: abi_name = "s3";
+            20: abi_name = "s4";
+            21: abi_name = "s5";
+            22: abi_name = "s6";
+            23: abi_name = "s7";
+            24: abi_name = "s8";
+            25: abi_name = "s9";
+            26: abi_name = "s10";
+            27: abi_name = "s11";
+            28: abi_name = "t3";
+            29: abi_name = "t4";
+            30: abi_name = "t5";
+            31: abi_name = "t6";
+            default: abi_name = "?";
         endcase
     endfunction
 
@@ -154,12 +203,27 @@ module system_tb;
         return $sformatf("%0.3f s", time_ns / 1_000_000_000.0);
     endfunction
 
+    task automatic dump_uart_buffer;
+        $display("[%0t] UART buffer: %s", $time, format_uart_queue(uart_rx_queue));
+    endtask
+
     task automatic check_debug_leds;
         if ((led[7] !== 1'b0) || (led[6] !== 1'b0) || (led[5] !== 1'b0) || (led[4] !== 1'b0)) begin
             fail($sformatf("debug LEDs asserted: led[7]=%b led[6]=%b led[5]=%b led[4]=%b",
                 led[7], led[6], led[5], led[4]));
         end
     endtask
+
+    function automatic string format_uart_queue(input logic [7:0] bytes [$]);
+        format_uart_queue = $sformatf("%0d bytes:", bytes.size());
+        for (int i = 0; i < bytes.size(); i++) begin
+            if ((bytes[i] >= 8'h20) && (bytes[i] <= 8'h7e)) begin
+                format_uart_queue = {format_uart_queue, $sformatf(" '%c'", bytes[i])};
+            end else begin
+                format_uart_queue = {format_uart_queue, $sformatf(" 0x%02x", bytes[i])};
+            end
+        end
+    endfunction
 
     task automatic read_uart_byte(output logic [7:0] value);
         do begin
@@ -178,17 +242,33 @@ module system_tb;
         end
     endtask
 
-    task automatic expect_uart_hello;
+    task automatic write_uart_byte(input logic [7:0] value);
+        uart_rx_in = 1'b0;
+        #(UART_BIT_PERIOD);
+        for (int i = 0; i < 8; i++) begin
+            uart_rx_in = value[i];
+            #(UART_BIT_PERIOD);
+        end
+        uart_rx_in = 1'b1;
+        #(UART_BIT_PERIOD);
+    endtask
+
+    task automatic receive_uart_bytes;
         logic [7:0] rx_byte;
-        for (int i = 0; i < 7; i++) begin
+        for (int i = 0; i < 10; i++) begin
             read_uart_byte(rx_byte);
-            if (rx_byte !== expected_uart_byte(i)) begin
+            uart_rx_queue.push_back(rx_byte);
+            if ((rx_byte !== expected_uart_byte(i))) begin
                 fail($sformatf("UART byte %0d mismatch: got 0x%02x expected 0x%02x",
                     i, rx_byte, expected_uart_byte(i)));
             end
         end
         uart_seen = 1'b1;
-        $display("[%0t] UART sent expected Hello message", $time);
+
+        for (int i = 0; i < 30; i++) begin
+            read_uart_byte(rx_byte);
+            uart_rx_queue.push_back(rx_byte);
+        end
     endtask
 
     task automatic expect_led_on;
@@ -293,28 +373,56 @@ module system_tb;
         uart_seen = 1'b0;
         test_failed = 1'b0;
         load_optional_system_sram_expected();
+    end
 
-        wait (dut.rst_n === 1'b1);
-        repeat (4) @(posedge clk);
+    initial begin
+        while (dut.rst_n !== 1'b1) begin
+            @(posedge clk);
+        end
+        repeat (100) @(posedge clk);
         check_debug_leds();
+        write_uart_byte("H");
+        write_uart_byte("i");
+        write_uart_byte(".");
+    end
 
-        fork
-            expect_led_on();
-            expect_uart_hello();
-            begin
-                #TEST_TIMEOUT;
-                fail($sformatf("timed out waiting for LED behavior and UART Hello message: led0_seen=%b, led0_done=%b, led0_pulse_ok=%b, led1_seen=%b, uart_seen=%b",
-                    led0_seen, led0_done, led0_pulse_ok, led1_seen, uart_seen));
-            end
-        join_none
+    initial begin
+        while (dut.rst_n !== 1'b1) begin
+            @(posedge clk);
+        end
+        expect_led_on();
+    end
 
-        wait (led0_pulse_ok && led1_seen && uart_seen);
-        disable fork;
+    initial begin
+        while (dut.rst_n !== 1'b1) begin
+            @(posedge clk);
+        end
+        receive_uart_bytes();
+    end
+
+    initial begin
+        while (dut.rst_n !== 1'b1) begin
+            @(posedge clk);
+        end
+        #TEST_TIMEOUT;
+        fail($sformatf("timed out waiting for LED behavior and UART Hello message: led0_seen=%b, led0_done=%b, led0_pulse_ok=%b, led1_seen=%b, uart_seen=%b",
+            led0_seen, led0_done, led0_pulse_ok, led1_seen, uart_seen));
+    end
+
+    initial begin
+        while (dut.rst_n !== 1'b1) begin
+            @(posedge clk);
+        end
+        while (!(led0_pulse_ok && led1_seen && uart_seen) && !test_failed) begin
+            @(posedge clk);
+        end
         check_debug_leds();
         check_optional_system_sram_expected();
         if (!test_failed) begin
             $display("[%0t] PASS: system basic behavior verified", $time);
         end
+        dump_uart_buffer();
+
         $finish;
     end
 

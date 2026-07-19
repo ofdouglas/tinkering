@@ -2,9 +2,12 @@
 .global _start
 
 _start:
-_init_stack:
+/* Initialize stack and exception entry */
     la  sp, _stack_top
+    la  t0, _exception_handler
+    csrrw  x0, mtvec, t0
 
+/* Zero the .bss section */
 _zero_bss:
     la   t0, _bss_start         /* t0 = .bss start  */
     la   t1, _bss_end           /* t1 = .bss end  */
@@ -15,6 +18,7 @@ _zero_loop:
     blt  t0, t1, _zero_loop
 _zero_done:
 
+/* Initialize the .data sections */
 _copy_init:
     la   x20, _copy_data         /* x20 = src[0]  */ 
     la   x21, _data_start        /* x21 = dest[0]  */
@@ -27,13 +31,6 @@ _copy_loop:
     addi x21, x21, 4
     blt  x21, x22, _copy_loop
 _copy_done:
-
-_enable_irq:
-    la  t0, _exception_handler
-    csrrw  x0, mtvec, t0
-    addi   t0, x0, 128
-    csrrs  x0, mie, t0          /* Enable machine timer IRQ */ 
-    csrrsi x0, mstatus, 8       /* Global interrupt enable  */ 
 
 _jump_main:
     jal main

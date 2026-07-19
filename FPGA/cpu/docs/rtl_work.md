@@ -1,8 +1,7 @@
 # RV32I CPU Working Document
 
 ## TODOs
-* Trap handling: bus errors, unaligned errors, invalid CSR access
- - Should have registers capture all of this
+* Refine trap handling: invalid fetch, bus errors, unaligned errors, invalid CSR access
 * General RTL cleanup
 * Periphal addressing cleanup
 * Better instruction fetch

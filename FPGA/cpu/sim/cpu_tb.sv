@@ -5,9 +5,9 @@ import test_data_pkg::*;
 module cpu_tb;
 
     localparam time CLK_PERIOD = 20ns;  // 50 MHz, matches (divided by 2) sys clock in system.sv
-    localparam int ROM_ADDR_BITS = 11;  // 4 KiB instruction ROM, matches linker.ld
+    localparam int ROM_ADDR_BITS = 11;  // 8 KiB instruction ROM, matches linker.ld
     localparam int ROM_WORDS = 2 ** ROM_ADDR_BITS;
-    localparam int DATA_ADDR_BITS = 11; // 4 KiB data SRAM, matches cpu_config_pkg
+    localparam int DATA_ADDR_BITS = 11; // 8 KiB data SRAM, matches cpu_config_pkg
     localparam int SRAM_WORDS = 2 ** DATA_ADDR_BITS;
     localparam int NUM_REGS = 32;
     localparam logic [31:0] TEST_ROM_BASE = 32'h0001_0000;
@@ -35,7 +35,12 @@ module cpu_tb;
     logic wr_ack;
     logic invalid_addr;
     logic invalid_region;
-    logic error;
+    logic memory_access_error;
+    logic fetch_fault;
+    logic load_fault;
+    logic store_fault;
+    logic store_unaligned;
+    logic is_write;
     logic mei_irq;
     logic mti_irq;
     bit irq_test = 1'b0;
@@ -86,6 +91,8 @@ module cpu_tb;
     assign fetch_in_range = ({fetch_addr, 2'b00} >= TEST_ROM_BASE) && ({fetch_addr, 2'b00} < TEST_ROM_END);
     assign instruction_fetch = fetch_in_range ? instruction_rom[rom_word_addr] : NOP_INSTRUCTION;
     assign fetch_valid = rst_n && fetch_in_range && !rom_busy;
+    assign fetch_fault = !fetch_in_range;
+    assign is_write = |wr_strobe;
 
     /* CPU read from SRAM, Peripherals, or ROM (stalls instruction fetch) */
     always_comb begin
@@ -121,7 +128,25 @@ module cpu_tb;
             end
         endcase
 
-        error = valid && (invalid_addr || invalid_region);
+        memory_access_error = valid && (invalid_addr || invalid_region);
+    end
+
+    always_comb begin
+        logic aligned_write;
+        logic [31:0] byte_addr;
+
+        byte_addr = {addr, 2'b00};
+        case (byte_addr[1:0])
+            2'b00: aligned_write = (wr_strobe == 4'b0001) || (wr_strobe == 4'b0010) ||
+                                   (wr_strobe == 4'b0100) || (wr_strobe == 4'b1000) ||
+                                   (wr_strobe == 4'b0011) || (wr_strobe == 4'b1100) ||
+                                   (wr_strobe == 4'b1111);
+            default: aligned_write = 1'b0;
+        endcase
+
+        store_unaligned = valid && is_write && !aligned_write;
+        load_fault = memory_access_error && !is_write;
+        store_fault = memory_access_error && is_write;
     end
 
 
@@ -131,6 +156,10 @@ module cpu_tb;
         .instruction_fetch (instruction_fetch),
         .fetch_addr (fetch_addr),
         .fetch_valid (fetch_valid),
+        .fetch_fault (fetch_fault),
+        .load_fault (load_fault),
+        .store_fault (store_fault),
+        .store_unaligned (store_unaligned),
         .valid (valid),
         .wr_strobe (wr_strobe),
         .wr_data (wr_data),
@@ -138,7 +167,6 @@ module cpu_tb;
         .rd_valid (rd_valid),
         .rd_data (rd_data),
         .wr_ack (wr_ack),
-        .error (error),
         .mei_irq (mei_irq),
         .mti_irq (mti_irq)
     );
@@ -341,7 +369,7 @@ module cpu_tb;
     endtask
 
     always_ff @(posedge clk) begin
-        if (rst_n && valid && (invalid_addr || invalid_region)) begin
+        if (rst_n && memory_access_error) begin
             fail($sformatf(
                 "data bus access out of range: addr=0x%08x wr_strobe=0x%x wr_data=0x%08x (valid regions are ROM 0x00010000-0x00010fff and RAM 0x10000000-0x10000fff)",
                 {addr, 2'b00}, wr_strobe, wr_data));

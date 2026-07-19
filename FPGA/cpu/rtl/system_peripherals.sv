@@ -9,6 +9,7 @@ module system_peripherals #(
     output logic [7:0]  sys_gpio_led_enables,
 
     // UART (Debug UART)
+    output logic        uart_irq_out,
     output logic        uart_tx_out,
     input  logic        uart_rx_in,
 
@@ -40,6 +41,7 @@ gpio system_gpio (
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) uart_bus();
 uart_periph uart0 (
     .bus(uart_bus.slave),
+    .uart_irq_out(uart_irq_out),
     .uart_tx_out(uart_tx_out),
     .uart_rx_in(uart_rx_in)
 );

@@ -9,8 +9,14 @@ module rv32cpu #(
     input  logic [31 : 0]       instruction_fetch,
     output logic [31 : 2]       fetch_addr,
     input  logic                fetch_valid,
+
+    // Exception signals
+    input  logic                fetch_fault,
+    input  logic                load_fault,
+    input  logic                store_fault,
+    input  logic                store_unaligned,
     input  logic                mei_irq, // MEI IRQ
-    input  logic                mti_irq, // Machine Timer IRQ
+    input  logic                mti_irq, // Machine Timer IRQ   
 
     // CPU -> Bus Request
     output logic                valid,
@@ -21,8 +27,7 @@ module rv32cpu #(
     // Bus -> CPU Response
     input  logic                rd_valid,
     input  logic [31 : 0]       rd_data,
-    input  logic                wr_ack,
-    input  logic                error
+    input  logic                wr_ack
 );
 
 
@@ -43,14 +48,14 @@ MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 ///////////////////////////////////////////////////////////////////////////////
 CpuControl         cpu_ctrl;
 
-
-logic mti_armed, mei_armed, external_interrupt;
+logic mti_armed, mei_armed, external_interrupt, external_exception;
 assign mti_armed = mti_irq && machine_special_regs.mie.mti_enable;
 assign mei_armed = mei_irq && machine_special_regs.mie.mei_enable;
 assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed);
+assign external_exception = fetch_fault || load_fault || store_fault || store_unaligned;
 
 logic exception_entry;
-assign exception_entry = cpu_ctrl.decode_trap || external_interrupt || cpu_ctrl.illegal_instruction;
+assign exception_entry = cpu_ctrl.decode_trap || external_interrupt || external_exception || cpu_ctrl.illegal_instruction;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 1: Instruction Fetch
@@ -60,7 +65,7 @@ logic instruction_flush;
 logic branch_redirect_taken;
 
 
-assign instruction_flush = external_interrupt || cpu_ctrl.decode_trap || cpu_ctrl.exception_return || branch_redirect_taken;
+assign instruction_flush = external_interrupt || external_exception || cpu_ctrl.decode_trap || cpu_ctrl.exception_return || branch_redirect_taken;
 
 // Address generation
 always_comb begin
@@ -817,6 +822,18 @@ always_comb begin
             cpu_ctrl.decode_trap,
             cpu_ctrl.exception_return
         };
+    end else if (fetch_fault) begin
+        mcause_data = write_mcause(0, TRAP_INST_ACCESS_FAULT);
+        mtval_data = fetch_regs.fetch_pc;
+    end else if (load_fault) begin
+        mcause_data = write_mcause(0, TRAP_LOAD_ACCESS_FAULT);
+        mtval_data = execute_regs.exec_result;
+    end else if (store_fault) begin
+        mcause_data = write_mcause(0, TRAP_STORE_ACCESS_FAULT);
+        mtval_data = execute_regs.exec_result;
+    end else if (store_unaligned) begin
+        mcause_data = write_mcause(0, TRAP_STORE_ADDR_MISALIGNED);
+        mtval_data = execute_regs.exec_result;
     end else if (external_interrupt && mei_armed) begin
         mcause_data = write_mcause(1, IRQ_SRC_MEI);
         mtval_data = '0;
@@ -859,6 +876,7 @@ always_ff @(posedge clk) begin
     end else if (exception_entry) begin
         machine_special_regs.mstatus.mie  <= '0;
         machine_special_regs.mstatus.mpie <= machine_special_regs.mstatus.mie;
+        /* TODO: handle mepc for other trap types */
         machine_special_regs.mepc         <= fetch_regs.fetch_pc;
         machine_special_regs.mcause       <= mcause_data;
         machine_special_regs.mtval        <= mtval_data;

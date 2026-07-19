@@ -67,22 +67,23 @@ block_sram #(.WORD_ADDR_BITS(MEMORY_ADDR_MSB-1)) cpu_sram (
 logic [7:0] gpio_led_enables;
 logic [3:0] debug_leds;
 logic [63:0] mtime;
+logic uart_irq_out;
 logic mti_irq;
 logic mei_irq;
-assign mei_irq = 1'b0;
+assign mei_irq = uart_irq_out;
 
 // Peripheral bus
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) periph_bus();
 system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) peripherals (
     .bus(periph_bus.slave),
     .sys_gpio_led_enables(gpio_led_enables),
+    .uart_irq_out(uart_irq_out),
     .uart_tx_out(uart_tx_out),
     .uart_rx_in(uart_rx_in),
     .mti_irq(mti_irq),
     .mtime(mtime)
 );
 assign led = {debug_leds, gpio_led_enables[3:0]};
-
 
 // System bus. address_bus[31:28] selects regions
 logic [31:0] address_bus;
@@ -95,7 +96,6 @@ logic memory_rd_valid;
 logic memory_wr_ack;
 logic memory_access_error;
 logic cpu_request;
-logic cpu_trap;
 logic rom_trap;
 logic periph_trap;
 logic unaligned_write_trap;
@@ -108,13 +108,10 @@ always_comb begin
     logic aligned_write;
     case (address_bus[1:0])
         // 1, 2, or 4 bytes
-        2'b00 : aligned_write = (byte_enables == 4'b0001) || (byte_enables == 4'b0011) || (byte_enables == 4'b1111);
-        // 1 byte
-        2'b01 : aligned_write = (byte_enables == 4'b0010);
-        // 1 or 2 bytes
-        2'b10 : aligned_write = (byte_enables == 4'b0100) || (byte_enables == 4'b1100);
-        // 1 byte
-        2'b11 : aligned_write = (byte_enables == 4'b1000);
+        2'b00 : aligned_write = (byte_enables == 4'b0001) ||  (byte_enables == 4'b0010) ||
+                                (byte_enables == 4'b0100) || (byte_enables == 4'b1000) ||
+                                (byte_enables == 4'b0011) || (byte_enables == 4'b1100) || 
+                                (byte_enables == 4'b1111);
         default : aligned_write = 0;
     endcase
 
@@ -185,12 +182,8 @@ assign periph_bus.wr_strobe = byte_enables;
 assign periph_bus.wr_data = data_write_bus;
 assign periph_bus.addr = address_bus[PERIPH_ADDR_MSB+2:2];
 
-
-assign memory_access_error = cpu_request &&
-                             (unaligned_write_trap ||
-                              (region_rom && is_write) ||
-                              !(region_rom || region_ram || region_periph));
-assign cpu_trap = memory_access_error || rom_trap;
+assign memory_access_error = cpu_request && (periph_trap || (region_rom && is_write) ||
+                                            !(region_rom || region_ram || region_periph));
 
 // Latch HW faults
 always_ff @(posedge clk) begin
@@ -210,6 +203,10 @@ rv32cpu cpu(
     .instruction_fetch (rom_fetch.rd_data),
     .fetch_addr        (rom_fetch.addr),
     .fetch_valid       (rom_fetch_response_matches),
+    .fetch_fault       (rom_fetch.error),
+    .load_fault        (memory_access_error && !is_write),
+    .store_fault       (memory_access_error && is_write),
+    .store_unaligned   (unaligned_write_trap),
     .mti_irq           (mti_irq),
     .mei_irq           (mei_irq),
     .valid             (cpu_request),
@@ -218,8 +215,7 @@ rv32cpu cpu(
     .addr              (cpu_word_address),
     .rd_valid          (memory_rd_valid),
     .rd_data           (data_read_bus),
-    .wr_ack            (memory_wr_ack),
-    .error             (memory_access_error)
+    .wr_ack            (memory_wr_ack)
 );
 
 endmodule
