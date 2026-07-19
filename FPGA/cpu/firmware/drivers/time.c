@@ -43,7 +43,13 @@ void mtim_write_compare(const uint64_t value) {
 
 
 // Valid modes: "machine", "supervisor", or "user"
-void mtim_isr(void) __attribute__((interrupt("machine")));
+#ifdef __cplusplus
+extern "C" {
+    void mtim_isr(void) __attribute__((interrupt("machine")));
+}
+#else
+    void mtim_isr(void) __attribute__((interrupt("machine")));
+#endif
 
 volatile uint32_t _mtime_isr_counter;
 

@@ -41,10 +41,6 @@ always_ff @(posedge bus.clk) begin
         uart_tx_ready_irq_enable <= 1'b0;
         uart_irq_out <= 1'b0;
     end else begin
-
-        // uart_rx_valid_irq_enable <= bus.wr_strobe[0] && (bus.addr[3:2] == 2'b00);
-        // uart_tx_ready_irq_enable <= bus.wr_strobe[0] && (bus.addr[3:2] == 2'b01);
-
         rx_valid_irq = uart_rx_valid_strobe && uart_rx_valid_irq_enable;
         tx_ready_irq = uart_tx_ready && uart_tx_ready_irq_enable;
         uart_irq_out <= rx_valid_irq | tx_ready_irq;

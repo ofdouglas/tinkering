@@ -32,6 +32,28 @@ _copy_loop:
     blt  x21, x22, _copy_loop
 _copy_done:
 
+/* Call C++ global constructors (.init_array). */
+_init_ctors:
+    la   s0, _init_array_start
+    la   s1, _init_array_end
+    bge  s0, s1, _init_ctors_done
+_init_ctors_loop:
+    lw   t0, 0(s0)
+    jalr ra, t0, 0
+    addi s0, s0, 4
+    blt  s0, s1, _init_ctors_loop
+_init_ctors_done:
+
+_paint_stack:
+    la   s2, 0x77777777
+    la   s3, _stack_bottom
+    la   s4, _stack_top
+    bge  s3, s4, _jump_main
+_paint_stack_loop:
+    sw   s2, 0(s3)
+    addi s3, s3, 4
+    blt  s3, s4, _paint_stack_loop
+
 _jump_main:
     jal main
 1:  j 1b

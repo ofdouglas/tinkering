@@ -6,7 +6,7 @@ module system_tb;
 
     localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
     localparam time UART_BIT_PERIOD = (CLK_PERIOD * 2) * 27 * 16; // x2 for 100->50 MHz conversion
-    localparam time TEST_TIMEOUT = 2ms;
+    localparam time TEST_TIMEOUT = 10ms;
     localparam int SYSTEM_SRAM_WORDS = 2 ** (MEMORY_ADDR_MSB - 1);
     localparam realtime LED0_PULSE_MIN_NS = 95_000.0;
     localparam realtime LED0_PULSE_MAX_NS = 115_000.0;
@@ -19,6 +19,7 @@ module system_tb;
     logic led0_seen, led0_done, led0_pulse_ok;
     logic led1_seen;
     logic uart_seen;
+    logic hello_complete;
     logic test_failed;
     logic [31:0] expected_sram [0:SYSTEM_SRAM_WORDS-1];
     bit system_sram_expected_loaded;
@@ -110,15 +111,50 @@ module system_tb;
                 abi_name(i + 2), dut.cpu.x_register_file[i + 2],
                 abi_name(i + 3), dut.cpu.x_register_file[i + 3]);
         end
-        $display("SRAM contents:");
-        for (int address = 0; address < 64; address += 4) begin
-            $display("system_tb:   %0d: 0x%08x 0x%08x 0x%08x 0x%08x", address * 4, 
-                dut.cpu_sram.sram_word_array[address], dut.cpu_sram.sram_word_array[address + 1],
-                dut.cpu_sram.sram_word_array[address + 2], dut.cpu_sram.sram_word_array[address + 3]);
+        dump_sram_range_summary();
+        $display("system_tb: --- end CPU context ---");
+    endtask
+
+    function automatic logic [31:0] sram_word_to_byte_addr(input int word_index);
+        return SHARED_RAM_BASE + (word_index * 4);
+    endfunction
+
+    task automatic dump_sram_words(input int start_word, input int num_words);
+        int end_word;
+
+        if (start_word < 0 || start_word >= SYSTEM_SRAM_WORDS) begin
+            $display("system_tb:   (SRAM dump start word %0d out of range 0..%0d)",
+                start_word, SYSTEM_SRAM_WORDS - 1);
+            return;
         end
 
+        end_word = start_word + num_words;
+        if (end_word > SYSTEM_SRAM_WORDS) begin
+            end_word = SYSTEM_SRAM_WORDS;
+        end
 
-        $display("system_tb: --- end CPU context ---");
+        for (int w = start_word; w < end_word; w += 4) begin
+            if ((w + 3) >= SYSTEM_SRAM_WORDS) begin
+                break;
+            end
+            $display("system_tb:   0x%08x: 0x%08x 0x%08x 0x%08x 0x%08x",
+                sram_word_to_byte_addr(w),
+                dut.cpu_sram.sram_word_array[w],
+                dut.cpu_sram.sram_word_array[w + 1],
+                dut.cpu_sram.sram_word_array[w + 2],
+                dut.cpu_sram.sram_word_array[w + 3]);
+        end
+    endtask
+
+    task automatic dump_sram_range_summary();
+        localparam int NUM_START_WORDS = 32;
+        localparam int NUM_END_WORDS = 128;
+
+        $display("SRAM first %0d words:", NUM_START_WORDS);
+        dump_sram_words(0, NUM_START_WORDS);
+
+        $display("SRAM last %0d words:", NUM_END_WORDS);
+        dump_sram_words(SYSTEM_SRAM_WORDS - NUM_END_WORDS, NUM_END_WORDS);
     endtask
 
     task automatic fail(input string message);
@@ -262,6 +298,9 @@ module system_tb;
                 fail($sformatf("UART byte %0d mismatch: got 0x%02x expected 0x%02x",
                     i, rx_byte, expected_uart_byte(i)));
             end
+            if (i == 6) begin
+                hello_complete = 1'b1;
+            end
         end
         uart_seen = 1'b1;
 
@@ -371,6 +410,7 @@ module system_tb;
         led0_pulse_ok = 1'b0;
         led1_seen = 1'b0;
         uart_seen = 1'b0;
+        hello_complete = 1'b0;
         test_failed = 1'b0;
         load_optional_system_sram_expected();
     end
@@ -379,11 +419,19 @@ module system_tb;
         while (dut.rst_n !== 1'b1) begin
             @(posedge clk);
         end
+
         repeat (100) @(posedge clk);
         check_debug_leds();
-        write_uart_byte("H");
-        write_uart_byte("i");
-        write_uart_byte(".");
+
+        // Wait until "Hello!\n" (7 bytes) is fully received before echo stimulus.
+        while (!hello_complete && !test_failed) begin
+            @(posedge clk);
+        end
+        if (!test_failed) begin
+            write_uart_byte("H");
+            write_uart_byte("i");
+            write_uart_byte(".");
+        end
     end
 
     initial begin

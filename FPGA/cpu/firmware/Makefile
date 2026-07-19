@@ -3,8 +3,10 @@ CPU_DIR = ..
 FPGA_DIR = $(CPU_DIR)/..
 ARCH   = -march=rv32i_zicsr -mabi=ilp32
 INC_DIRS = . $(sort $(patsubst %/,%,$(dir $(wildcard */*.h))))
-CFLAGS = $(ARCH) -Os -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
+CFLAGS = $(ARCH) -O0 -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
+CPPFLAGS = $(ARCH) $(CFLAGS) -fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables
 LDFLAGS = $(ARCH) -T linker/linker.ld -nostdlib -Wl,--print-memory-usage
+
 # ELF addresses start at BOOT_ROM 0x00010000; make the Verilog image array-relative.
 HEX_ADDR_OFFSET = -0x00010000
 BUILD_DIR = build
@@ -13,12 +15,16 @@ FIRMWARE_ELF = $(BUILD_DIR)/firmware.elf
 FIRMWARE_HEX = $(BUILD_DIR)/firmware.hex
 FIRMWARE_LST = $(BUILD_DIR)/firmware.lst
 FIRMWARE_MAP = $(BUILD_DIR)/firmware.map
+
 C_SRCS = $(wildcard *.c */*.c)
+CPP_SRCS = $(wildcard *.cpp */*.cpp)
 ASM_SRCS = $(wildcard *.S */*.S)
 OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRCS)) \
+       $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CPP_SRCS)) \
        $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SRCS))
-FW_DEPS = $(wildcard *.c *.s *.S *.h *.ld) \
-          $(wildcard */*.c */*.h */*.s */*.S */*.ld)
+FW_DEPS = $(wildcard *.c *.cpp *.s *.S *.h *.ld) \
+          $(wildcard */*.c */*.cpp */*.h */*.s */*.S */*.ld)
+
 SYSTEM_SIM_DIR = $(BUILD_DIR)/system_tb
 SYSTEM_SIM_BIN = $(SYSTEM_SIM_DIR)/Vsystem_tb
 VIVADO_BAT ?= $(lastword $(wildcard /mnt/c/Xilinx/Vivado/*/bin/vivado.bat))
@@ -62,24 +68,32 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 $(FIRMWARE_HEX): $(FIRMWARE_ELF)
-	$(PREFIX)objcopy --change-addresses $(HEX_ADDR_OFFSET) -O verilog --verilog-data-width=4 $< $@
+	# Emit BOOT_ROM only (.text output section includes startup, code, rodata, init_array).
+	# Do not emit SHARED_RAM VMA sections (they caused $readmemh OOB in block_rom).
+	$(PREFIX)objcopy --only-section=.boot_rom_section --change-addresses $(HEX_ADDR_OFFSET) -O verilog --verilog-data-width=4 $< $@
 	@mkdir -p $(dir $(HEX_INSTALL))
 	cp $@ $(HEX_INSTALL)
+	
 $(FIRMWARE_LST): $(FIRMWARE_ELF)
 	$(PREFIX)objdump -d -S $< > $@
+
 $(FIRMWARE_MAP): $(FIRMWARE_ELF)
 	$(PREFIX)objdump -t $< > $@
 
 $(FIRMWARE_ELF): $(OBJS) $(FW_DEPS)
-	$(PREFIX)gcc $(LDFLAGS) -o $@ $(OBJS) -lgcc
+	$(PREFIX)g++ $(CPPFLAGS) $(LDFLAGS) -o $@ $(OBJS) -lgcc
 
 $(BUILD_DIR)/%.o: %.S $(FW_DEPS) | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	$(PREFIX)gcc $(CFLAGS) -c $< -o $@
+	$(PREFIX)g++ $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: %.c $(FW_DEPS) | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	$(PREFIX)gcc $(CFLAGS) -c $< -o $@
+	$(PREFIX)g++ $(CPPFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: %.cpp $(FW_DEPS) | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(PREFIX)g++ $(CPPFLAGS) -c $< -o $@
 
 $(SYSTEM_SIM_BIN): $(SYSTEM_TB_SRCS) $(HEX_INSTALL) | $(SYSTEM_SIM_DIR)
 	verilator --binary -sv --timing -Wno-TIMESCALEMOD -Wno-WIDTHEXPAND \

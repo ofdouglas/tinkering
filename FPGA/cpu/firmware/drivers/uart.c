@@ -53,7 +53,13 @@ void uart_rx_init(void) {
 }
 
 // Valid modes: "machine", "supervisor", or "user"
-void mei_isr(void) __attribute__((interrupt("machine")));
+#ifdef __cplusplus
+    extern "C" {
+        void mei_isr(void) __attribute__((interrupt("machine")));
+    }
+#else
+    void mei_isr(void) __attribute__((interrupt("machine")));
+#endif
 
 void mei_isr(void) {
     // TODO: check valid?
