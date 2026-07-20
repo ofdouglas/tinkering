@@ -4,18 +4,7 @@
 #include "drivers/time.h"
 #include "drivers/uart.h"
 #include "drivers/gpio.h"
-
-
-#define LOG_BUFFER_SIZE_B 32
-uint8_t log_buffer[LOG_BUFFER_SIZE_B] __attribute__((section(".log_buffer")));
-
-void checkpoint(uint32_t index) {
-    if (index >= LOG_BUFFER_SIZE_B) {
-        return;
-    }
-
-    log_buffer[index] = 1;
-}
+#include "system/debug.h"
 
 
 void hello_message(void) {
@@ -28,13 +17,14 @@ void toggle_led1_1hz(void) {
     // 1 Hz * 50% duty cycle = 500 ms toggle period
     constexpr uint64_t kTogglePeriodNs = NS_PER_MILLISEC * 500U;
     static uint64_t next_toggle_time_ns = 0;
-    static bool led_on = false;
+    static bool led_on = true;
 
     uint64_t current_time_ns = mtim_read_nanosec();
     if (current_time_ns >= next_toggle_time_ns) {
         next_toggle_time_ns = current_time_ns + kTogglePeriodNs;
-        led_on = !led_on;
+
         gpio_set_led(1, led_on);
+        led_on = !led_on;
         checkpoint(5);
     }
 }

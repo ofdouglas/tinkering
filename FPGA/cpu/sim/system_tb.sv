@@ -147,8 +147,8 @@ module system_tb;
     endtask
 
     task automatic dump_sram_range_summary();
-        localparam int NUM_START_WORDS = 32;
-        localparam int NUM_END_WORDS = 128;
+        localparam int NUM_START_WORDS = 64;
+        localparam int NUM_END_WORDS = 96;
 
         $display("SRAM first %0d words:", NUM_START_WORDS);
         dump_sram_words(0, NUM_START_WORDS);

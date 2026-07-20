@@ -11,6 +11,12 @@ STACK_SIZE = 512 * 4;
 HEAP_SIZE  = 512 * 1;
 
 SECTIONS {
+    /DISCARD/ :
+    {
+        *(.eh_frame*)
+        *(.eh_frame_hdr*)
+    }
+
     /**************************************************************************
      * ROM sections 
      *************************************************************************/
@@ -37,7 +43,7 @@ SECTIONS {
     /**************************************************************************
      * RAM sections 
      *************************************************************************/
-    .bss  : 
+    .bss  (NOLOAD) :
     { 
         . = ALIGN(4);
         _bss_start = .;
@@ -51,14 +57,13 @@ SECTIONS {
 
     } > SHARED_RAM
 
-    .data : 
+    .data :
     {
         . = ALIGN(4);
         _data_start = .;
         *(.data .data.* .sdata .sdata.*)
         . = ALIGN(4);
         _data_end = .;
-
     } > SHARED_RAM AT> BOOT_ROM
 
     _copy_data = LOADADDR(.data);
@@ -79,6 +84,4 @@ SECTIONS {
         . = _stack_bottom;
         . = . + STACK_SIZE;
     } > SHARED_RAM
-
-
 }

@@ -9,6 +9,8 @@
 * Priviledge levels
 * Flush fewer instructions for CSR hazard
 
+### UART
+There is also a receiver timing defect in uart.sv: it shifts the stop bit when rx_bit_count == 8, then waits another full bit period before completing at == 9. That should be completed at the stop-bit sample rather than delaying until the following bit.
 
 mepc saved from decode_regs.current_pc (one stage behind)
 Handler uses mepc + 8 to resume after ECALL

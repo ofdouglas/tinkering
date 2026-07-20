@@ -8,12 +8,13 @@ module uart_periph(
 logic       uart_tx_strobe;
 logic       uart_rx_valid_strobe;
 logic       uart_rx_valid_reg;
+logic [7:0] uart_rx_data_reg;
 logic       uart_tx_ready;
 logic       uart_rx_valid_irq_enable;
 logic       uart_tx_ready_irq_enable;
 
 logic [7:0] uart_reg_tx_data;
-logic [7:0] uart_rx_data_r;
+logic [7:0] uart_rx_data_comb;
 logic [7:0] uart_reg8_mux = '0;
 logic       tx_write_active = 1'b0;
 
@@ -26,7 +27,7 @@ uart uart_component(
     .tx_valid (uart_tx_strobe),
     .tx_ready (uart_tx_ready),
     .tx_out   (uart_tx_out),
-    .rx_data  (uart_rx_data_r),
+    .rx_data  (uart_rx_data_comb),
     .rx_valid (uart_rx_valid_strobe),
     .rx_in    (uart_rx_in)
 );
@@ -41,7 +42,7 @@ always_ff @(posedge bus.clk) begin
         uart_tx_ready_irq_enable <= 1'b0;
         uart_irq_out <= 1'b0;
     end else begin
-        rx_valid_irq = uart_rx_valid_strobe && uart_rx_valid_irq_enable;
+        rx_valid_irq = uart_rx_valid_reg && uart_rx_valid_irq_enable;
         tx_ready_irq = uart_tx_ready && uart_tx_ready_irq_enable;
         uart_irq_out <= rx_valid_irq | tx_ready_irq;
     end
@@ -63,8 +64,8 @@ always_ff @(posedge bus.clk) begin
             tx_write_active <= 1'b0;
         end else if (!tx_write_active && bus.wr_strobe[0]) begin
             if (bus.addr[3:2] == 2'd1) begin
-                uart_rx_valid_irq_enable <= bus.wr_data[0];
-                uart_tx_ready_irq_enable <= bus.wr_data[1];
+                uart_rx_valid_irq_enable <= bus.wr_data[1];
+                uart_tx_ready_irq_enable <= bus.wr_data[0];
                 bus.wr_ack       <= 1'b1;
                 tx_write_active  <= 1'b1;
             end else if (bus.addr[3:2] == 2'd2) begin
@@ -82,6 +83,7 @@ end
 // Read from various registers
 always_ff @(posedge bus.clk) begin
     if (!bus.rst_n) begin
+        uart_rx_valid_reg <= 1'b0;
         uart_reg8_mux <= '0;
         bus.rd_valid  <= 1'b0;
         bus.error     <= 1'b0;
@@ -92,7 +94,7 @@ always_ff @(posedge bus.clk) begin
         if (bus.valid && ~|bus.wr_strobe) begin
             unique case (bus.addr[3:2])
                 2'd0: begin
-                    uart_reg8_mux <= {6'b0, uart_rx_valid_strobe, uart_tx_ready};
+                    uart_reg8_mux <= {6'b0, uart_rx_valid_reg, uart_tx_ready};
                     bus.rd_valid  <= 1'b1;
                 end
                 2'd1: begin
@@ -104,13 +106,18 @@ always_ff @(posedge bus.clk) begin
                     bus.rd_valid  <= 1'b1;
                 end
                 2'd3: begin
-                    uart_reg8_mux <= uart_rx_data_r;
+                    uart_reg8_mux <= uart_rx_data_reg;
+                    uart_rx_valid_reg <= 1'b0;
                     bus.rd_valid  <= 1'b1;
                 end
                 default: begin
                     bus.error <= 1'b1;
                 end
             endcase
+        end 
+        if (uart_rx_valid_strobe) begin
+            uart_rx_valid_reg <= 1'b1;
+            uart_rx_data_reg <= uart_rx_data_comb;
         end
     end
 end

@@ -51,7 +51,8 @@ CpuControl         cpu_ctrl;
 logic mti_armed, mei_armed, external_interrupt, external_exception;
 assign mti_armed = mti_irq && machine_special_regs.mie.mti_enable;
 assign mei_armed = mei_irq && machine_special_regs.mie.mei_enable;
-assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed);
+// TODO: latch pending interrupts until mem_stall is cleared
+assign external_interrupt = (machine_special_regs.mstatus.mie && (mei_armed || mti_armed)) && !cpu_ctrl.mem_stall;
 assign external_exception = fetch_fault || load_fault || store_fault || store_unaligned;
 
 logic exception_entry;

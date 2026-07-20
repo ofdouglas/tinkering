@@ -42,16 +42,11 @@ void mtim_write_compare(const uint64_t value) {
 }
 
 
-// Valid modes: "machine", "supervisor", or "user"
+volatile uint32_t _mtime_isr_counter;
+
 #ifdef __cplusplus
 extern "C" {
-    void mtim_isr(void) __attribute__((interrupt("machine")));
-}
-#else
-    void mtim_isr(void) __attribute__((interrupt("machine")));
 #endif
-
-volatile uint32_t _mtime_isr_counter;
 
 void mtim_isr(void) {
     // Increment the ISR counter
@@ -61,6 +56,10 @@ void mtim_isr(void) {
     *MTIM_COMP_HIGH_REG = 0xFFFFFFFFUL;
     *MTIM_COMP_LOW_REG = 0xFFFFFFFFUL;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 void mtim_delay_ns(const uint64_t ns) {
     const uint64_t start_ns = mtim_read_nanosec();

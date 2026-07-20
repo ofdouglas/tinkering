@@ -1,5 +1,6 @@
 #include "drivers/uart.h"
 #include "linker/mem_map.h"
+#include "system/debug.h"
 #include "util/ringbuf.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -12,7 +13,9 @@
 #define UART_STATUS_TX_READY (1U << 0)
 #define UART_STATUS_RX_VALID (1U << 1)
 
-#define UART_IRQ_ENABLE_RX_VALID (1U << 0)
+#define UART_IRQ_ENABLE_TX_READY (1U << 0)
+#define UART_IRQ_ENABLE_RX_VALID (1U << 1)
+
 
 bool uart_putchar_nonblocking(char c) {
     if (!(*UART_STATUS_REG & UART_STATUS_TX_READY)) {
@@ -52,20 +55,31 @@ void uart_rx_init(void) {
     ringbuf_init(&uart_rx_ringbuf, uart_rx_buffer, UART_RX_BUFFER_SIZE);
 }
 
-// Valid modes: "machine", "supervisor", or "user"
 #ifdef __cplusplus
-    extern "C" {
-        void mei_isr(void) __attribute__((interrupt("machine")));
-    }
-#else
-    void mei_isr(void) __attribute__((interrupt("machine")));
+extern "C" {
 #endif
 
 void mei_isr(void) {
-    // TODO: check valid?
-    uint8_t data = (uint8_t)*UART_RX_DATA_REG;
-    ringbuf_enqueue(&uart_rx_ringbuf, data);
+    checkpoint(8);
+    const uint32_t status = *UART_STATUS_REG;
+    checkpoint(9);
+    if (status & UART_STATUS_RX_VALID) {
+        checkpoint(10);
+        const uint8_t data = *UART_RX_DATA_REG;
+        checkpoint(11);
+        ringbuf_enqueue(&uart_rx_ringbuf, data);
+        checkpoint(12);
+    }
+
+    // const int data = uart_getchar_nonblocking();
+    // if (data >= 0) {
+    //     ringbuf_enqueue(&uart_rx_ringbuf, (uint8_t)data);
+    // }
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 bool uart_receive_byte(uint8_t* data) {
     if (ringbuf_dequeue(&uart_rx_ringbuf, data)) {
