@@ -1,8 +1,8 @@
 module crc #(
     parameter int WIDTH = 8,
-    parameter int POLYNOMIAL = 8'h1D,
-    parameter int INITIAL    = 8'hFF,
-    parameter int FINAL_XOR  = 8'hFF
+    parameter logic [WIDTH-1:0] POLYNOMIAL = 'h1D,
+    parameter logic [WIDTH-1:0] INITIAL    = 'hFF,
+    parameter logic [WIDTH-1:0] FINAL_XOR  = 'hFF
 )(
     
     input logic clk,
@@ -10,6 +10,7 @@ module crc #(
 
     input logic [WIDTH-1:0] data,
     input logic data_valid,
+    input logic initial_data,
 
     output logic ready,
     output logic [WIDTH-1:0] crc_out,
@@ -42,7 +43,7 @@ always_ff @(posedge clk or posedge reset) begin
             STATE_INVALID: begin
                 if (data_valid) begin
                     state            <= STATE_BUSY;
-                    shift_register   <= data ^ INITIAL;
+                    shift_register   <= data ^ (initial_data ? INITIAL : shift_register);
                     shifts_remaining <= WIDTH;
                     ready            <= 1'b0;
                 end else begin
@@ -69,7 +70,7 @@ always_ff @(posedge clk or posedge reset) begin
             STATE_VALID: begin
                 ready     <= 1'b1;
                 crc_valid <= 1'b1;
-                crc_out   <= shift_register[WIDTH-1:0] ^ '1;//FINAL_XOR; // TODO: is this correct?
+                crc_out   <= shift_register[WIDTH-1:0] ^ FINAL_XOR;
 
                 if (data_valid) begin
                     state            <= STATE_BUSY;

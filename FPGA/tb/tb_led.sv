@@ -18,6 +18,16 @@ module tb_led();
 
     always #5 clk = ~clk;
 
+    initial begin
+        string dump_path;
+        if ($test$plusargs("trace")) begin
+            if (!$value$plusargs("dumpfile=%s", dump_path))
+                dump_path = "tb_led.fst";
+            $dumpfile(dump_path);
+            $dumpvars(0, tb_led);
+        end
+    end
+
     always_ff @(posedge led) begin
         num_led_edges <= num_led_edges + 1;
     end

@@ -34,6 +34,16 @@ module uart_test();
     always #10 clk = ~clk;
 
     initial begin
+        string dump_path;
+        if ($test$plusargs("trace")) begin
+            if (!$value$plusargs("dumpfile=%s", dump_path))
+                dump_path = "uart_test.fst";
+            $dumpfile(dump_path);
+            $dumpvars(0, uart_test);
+        end
+    end
+
+    initial begin
         rst_n = 0;
         #10 rst_n = 1;
         tx_data = 8'hA7;
