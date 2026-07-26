@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "static_string.h"
+#include "data_structures/static_string.h"
 #include "log.hpp"
 
 #include <array>

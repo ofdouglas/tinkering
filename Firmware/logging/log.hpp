@@ -7,15 +7,17 @@
 
 #pragma once
 
-#include "static_string.h"
-
 #include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <type_traits>
 
+#include "data_structures/static_string.h"
+#include "data_structures/span.h"
+
 namespace logging {
 
+// @brief   Logging severity level enum
 enum class Level : uint8_t {
     Info,
     Warn,
@@ -23,9 +25,30 @@ enum class Level : uint8_t {
     Fatal,
 };
 
-void write(const char* file, uint32_t line, Level level, StaticString<> message);
+/** 
+ * @brief   Logging sink interface
+ * @details This interface is used to write log messages to a sink.
+ */
+class LogSink {
+public:
+    virtual ~LogSink() = default;
+
+    virtual bool write(Span<const uint8_t> message) = 0;
+    // virtual bool write(const char* file, uint32_t line, Level level, StaticString<> message) = 0;
+};
+
+bool setLogSink(LogSink* logSink);
+
+// TODO: clean up naming
+bool writeToLogSink(Span<const uint8_t> message);
+bool writeMessage(const char* file, uint32_t line, Level level, StaticString<> message);
 [[noreturn]] void fatal_at(const char* file, uint32_t line, StaticString<> message);
 
+
+/** 
+ * @brief  Ostream-like logger class which writes to the log sink
+ * @note   This class is not thread-safe.
+ */
 class LocalLogger {
 public:
     LocalLogger(const char* file, uint32_t line, Level level)
@@ -35,7 +58,7 @@ public:
         if (level_ == Level::Fatal) {
             fatal_at(file_, line_, buffer_);
         } else {
-            write(file_, line_, level_, buffer_);
+            writeMessage(file_, line_, level_, buffer_);
         }
     }
 
