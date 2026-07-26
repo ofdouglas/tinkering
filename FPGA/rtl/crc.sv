@@ -4,7 +4,6 @@ module crc #(
     parameter logic [WIDTH-1:0] INITIAL    = 'hFF,
     parameter logic [WIDTH-1:0] FINAL_XOR  = 'hFF
 )(
-    
     input logic clk,
     input logic reset,
 
@@ -74,7 +73,7 @@ always_ff @(posedge clk or posedge reset) begin
 
                 if (data_valid) begin
                     state            <= STATE_BUSY;
-                    shift_register   <= data ^ INITIAL;
+                    shift_register   <= data ^ (initial_data ? INITIAL : shift_register);
                     shifts_remaining <= WIDTH;
                     ready            <= 1'b0;
                 end

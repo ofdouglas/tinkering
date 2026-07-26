@@ -15,7 +15,7 @@ make lint
 make clean
 ```
 
-Registered modules: `crc`, `uart`, `led`.
+Registered modules: `crc`,  `uart`, `led`.
 
 Artifacts go to `build/sim/<module>/`. Waveforms: `build/sim/<module>/<top>.fst`.
 
