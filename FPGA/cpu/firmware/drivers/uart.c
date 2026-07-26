@@ -2,6 +2,7 @@
 #include "linker/mem_map.h"
 #include "system/debug.h"
 #include "util/ringbuf.h"
+#include "system/intrinsics.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -44,15 +45,51 @@ void uart_send_string_blocking(const char* str, const uint32_t length) {
     }
 }
 
-
 #define UART_RX_BUFFER_SIZE 16
+#define UART_TX_BUFFER_SIZE 16
 volatile uint8_t uart_rx_buffer[UART_RX_BUFFER_SIZE];
+volatile uint8_t uart_tx_buffer[UART_TX_BUFFER_SIZE];
 ringbuf_t uart_rx_ringbuf;
+ringbuf_t uart_tx_ringbuf;
 
-void uart_rx_init(void) {
+void uart_init(void) {
     *UART_IRQ_ENABLE_REG = UART_IRQ_ENABLE_RX_VALID;
 
     ringbuf_init(&uart_rx_ringbuf, uart_rx_buffer, UART_RX_BUFFER_SIZE);
+    ringbuf_init(&uart_tx_ringbuf, uart_tx_buffer, UART_TX_BUFFER_SIZE);
+}
+
+bool uart_receive_byte(uint8_t* data) {
+    if (ringbuf_dequeue(&uart_rx_ringbuf, data)) {
+        return true;
+    }
+    return false;
+}
+
+volatile bool tx_pending = false;
+
+bool uart_send_byte_nonblocking(uint8_t data) {
+    global_irq_disable();
+    const bool enqueue_ok = ringbuf_enqueue(&uart_tx_ringbuf, data);
+    checkpoint(16);
+    if (enqueue_ok) {
+        tx_pending = true;
+        *UART_IRQ_ENABLE_REG |= UART_IRQ_ENABLE_TX_READY;
+        checkpoint(17);
+    }
+    global_irq_enable();
+    return enqueue_ok;
+}
+
+bool uart_send_string_nonblocking(const char* data, size_t length) {
+    bool success = true;
+    for (size_t i = 0; i < length; i++) {
+        if (!uart_send_byte_nonblocking(data[i])) {
+            success = false;
+            break;
+        }
+    }
+    return success;
 }
 
 #ifdef __cplusplus
@@ -71,20 +108,20 @@ void mei_isr(void) {
         checkpoint(12);
     }
 
-    // const int data = uart_getchar_nonblocking();
-    // if (data >= 0) {
-    //     ringbuf_enqueue(&uart_rx_ringbuf, (uint8_t)data);
-    // }
+    if (tx_pending && (status & UART_STATUS_TX_READY)) {
+        if (ringbuf_is_empty(&uart_tx_ringbuf)) {
+            *UART_IRQ_ENABLE_REG &= ~UART_IRQ_ENABLE_TX_READY;
+            tx_pending = false;
+            checkpoint(15);
+        } else {
+            uint8_t data;
+            ringbuf_dequeue(&uart_tx_ringbuf, &data);
+            *UART_TX_DATA_REG = data;
+            checkpoint(14);
+        }
+    }
 }
 
 #ifdef __cplusplus
 }
 #endif
-
-bool uart_receive_byte(uint8_t* data) {
-    if (ringbuf_dequeue(&uart_rx_ringbuf, data)) {
-        return true;
-    }
-    return false;
-}
-

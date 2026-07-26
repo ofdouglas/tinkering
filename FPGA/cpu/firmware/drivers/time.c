@@ -34,6 +34,11 @@ uint64_t mtim_read_nanosec(void) {
     return ns_from_ticks(mtim_read_ticks());
 }
 
+
+uint64_t nanoseconds_since_boot(void) {
+    return mtim_read_nanosec();
+}
+
 void mtim_write_compare(const uint64_t value) {
     // Write max value into upper 32 bits to prevent spurious IRQ during write
     *MTIM_COMP_HIGH_REG  = 0xFFFFFFFFUL;

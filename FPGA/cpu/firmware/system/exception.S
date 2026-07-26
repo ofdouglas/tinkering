@@ -5,8 +5,8 @@
 .section .text
 .global _exception_handler
 
-.extern mei_isr_body
-.extern mtim_isr_body
+.extern mei_isr
+.extern mtim_isr
 .extern checkpoint
 
 /* Save caller-saved registers for a nested C call. */
@@ -52,7 +52,7 @@
 
 _exception_handler:
     SAVE_CALLER_REGS
-    li    a0, 13
+    li    a0, 18
     call  checkpoint
 
     /* Dispatch to trap or ISR handler. */

@@ -3,16 +3,21 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 void uart_send_string_blocking(const char* str, const uint32_t length);
 
 void uart_send_byte_blocking(uint8_t data);
 
+bool uart_send_string_nonblocking(const char* str, size_t length);
+
+bool uart_send_byte_nonblocking(uint8_t data);
+
 bool uart_putchar_nonblocking(char c);
 
 int uart_getchar_nonblocking(void);
 
-void uart_rx_init(void);
+void uart_init(void);
 
 bool uart_receive_byte(uint8_t* data);
 

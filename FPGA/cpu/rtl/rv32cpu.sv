@@ -89,7 +89,7 @@ always_ff @(posedge clk) begin
         fetch_regs <= '0;
         fetch_regs.current_pc <= RESET_PC;
         fetch_regs.fetch_pc <= RESET_PC;
-    end else if (!cpu_ctrl.decode_flush && !cpu_ctrl.mem_stall) begin
+    end else if (exception_entry || (!cpu_ctrl.decode_flush && !cpu_ctrl.mem_stall)) begin
         fetch_regs.unaligned_pc <= next_pc[1:0] != '0;
 
         fetch_regs.valid <= fetch_valid && !instruction_flush;

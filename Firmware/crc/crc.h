@@ -7,6 +7,7 @@
 
 #include "data_structures/span.h"
 
+
 template <typename T, T kPolynomial, T kInitial = 0, T kFinalXor = kInitial>
 T crcBitwise(Span<T> input) {
     static_assert(std::is_integral<T>::value, "T must be an integral type");

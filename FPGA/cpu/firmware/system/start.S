@@ -3,7 +3,9 @@
 
 _start:
 /* Initialize stack and exception entry */
-    la  sp, _stack_top
+    /* la sp, _stack_top relaxes to auipc+addi(0) and lands at RAM base, not stack top */
+    lui  sp, %hi(_stack_top)
+    addi sp, sp, %lo(_stack_top)
     la  t0, _exception_handler
     csrrw  x0, mtvec, t0
 

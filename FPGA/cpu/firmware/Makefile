@@ -1,8 +1,9 @@
 PREFIX = riscv64-unknown-elf-
+FIRMWARE_DIR = ../../../Firmware
 CPU_DIR = ..
 FPGA_DIR = $(CPU_DIR)/..
 ARCH   = -march=rv32i_zicsr -mabi=ilp32
-INC_DIRS = . $(sort $(patsubst %/,%,$(dir $(wildcard */*.h))))
+INC_DIRS = . $(sort $(patsubst %/,%,$(dir $(wildcard */*.h)))) $(FIRMWARE_DIR)/time
 CFLAGS = $(ARCH) -O0 -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
 CPP_DISABLE_FLAGS = -fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables
 CPPFLAGS = $(CFLAGS) $(CPP_DISABLE_FLAGS)

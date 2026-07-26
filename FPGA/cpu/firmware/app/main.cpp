@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include <stdbool.h>
+
 #include "system/intrinsics.h"
 #include "drivers/time.h"
 #include "drivers/uart.h"
@@ -64,7 +64,7 @@ Foo foo_obj(10, 0);
 
 int main(void) {
     checkpoint(0);
-    uart_rx_init();
+    uart_init();
 
     csr_write_mie(MIE_MEI | MIE_MTI);
     global_irq_enable();
@@ -79,8 +79,7 @@ int main(void) {
     checkpoint(2);
     {
         ScopedLedToggle led0(0);
-        mtim_delay_ns(NS_PER_MICROSEC * 100U);
-        // TODO: mtim_delay_ns_irq doesn't work here, why?
+        mtim_delay_ns_irq(NS_PER_MICROSEC * 100U);
     }
 
     checkpoint(3);
@@ -96,10 +95,10 @@ int main(void) {
         checkpoint(6);
         uint8_t data;
         if (uart_receive_byte(&data)) {
-            uart_send_byte_blocking(data);
+            if (uart_send_byte_nonblocking(data)) {
+                checkpoint(7);
+            }
         }
-
-        checkpoint(7);
     }
 
     while (1) {

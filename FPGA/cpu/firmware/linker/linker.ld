@@ -80,7 +80,6 @@ SECTIONS {
     {
         _stack_top = ORIGIN(SHARED_RAM) + LENGTH(SHARED_RAM);
         _stack_bottom = _stack_top - STACK_SIZE;
-
         . = _stack_bottom;
         . = . + STACK_SIZE;
     } > SHARED_RAM

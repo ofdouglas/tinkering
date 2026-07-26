@@ -65,13 +65,13 @@ inline void csr_write_mie(uint32_t mie) {
     );
 }
 
-void ecall(void) {
-    asm volatile (
-        "ecall"
-        :
-        :
-        : "memory"
-    );
-}
+// void ecall(void) {
+//     asm volatile (
+//         "ecall"
+//         :
+//         :
+//         : "memory"
+//     );
+// }
 
 #endif
