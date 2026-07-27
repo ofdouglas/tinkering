@@ -22,6 +22,9 @@
 
 class Bsp : public BaseBsp {
 public:
+    static constexpr uint32_t kSystemCoreClockHz = 200'000'000U;
+    static constexpr uint32_t kSysTickFrequencyHz = 1000U;
+
     UART_HandleTypeDef huart1{};
     GPIO_TypeDef* led_gpio = BSP_LED_GPIO_Port;
     uint16_t led_pin = BSP_LED_Pin;
@@ -44,6 +47,7 @@ private:
     };
 
     void configureSystemClock();
+    void configureSysTick();
     void configureGpio();
     void configureUsart1();
 

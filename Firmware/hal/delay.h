@@ -1,9 +1,9 @@
-#ifndef TIME_DELAY_H
-#define TIME_DELAY_H
+#ifndef HAL_DELAY_H
+#define HAL_DELAY_H
 
 #include "clock.h"
 
-namespace time {
+namespace hal {
 
 /**
  * @brief  Delay for a given duration.
@@ -18,6 +18,6 @@ void delayFor(typename ClockType::Duration d) {
     }
 }
 
-} // namespace time
+} // namespace hal
 
-#endif // TIME_DELAY_H
+#endif // HAL_DELAY_H

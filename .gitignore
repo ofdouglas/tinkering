@@ -8,7 +8,10 @@
 *.lst
 *.jou
 *.log
-
+*.xml
+*..metadata
+*.tar.gz
+*.plugins
 
 vivado/
 boards/

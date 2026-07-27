@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <limits>
 #include <type_traits>
+#include <inttypes.h>
 
 #include "data_structures/static_string.h"
 #include "data_structures/span.h"
@@ -84,6 +85,16 @@ public:
 
     LocalLogger& operator<<(uint32_t value) {
         return appendValue("%lu", value);
+    }
+
+    // TODO: proper 64-bit support
+    LocalLogger& operator<<(uint64_t value) {
+        return appendValue("%lu", static_cast<uint32_t>(value));
+    }
+
+    // TODO: proper 64-bit support
+    LocalLogger& operator<<(int64_t value) {
+        return appendValue("%ld", static_cast<int32_t>(value));
     }
 
     LocalLogger& operator<<(void* value) {

@@ -12,4 +12,5 @@ Follow-up items for a more robust host test setup (not all implemented yet).
 - **Multi-byte CRC**: align `crc_test` with FPGA `test_len[]` multi-byte cases.
 - **Python parity**: cross-check `hdlc/hdlc.py` against C++ encode/decode tests.
 - **Coverage**: optional `gcov` / `llvm-cov` Makefile target.
-- **Windows native**: MSVC build notes if host tests need to run outside WSL.
+
+- **Logging 64-bit integers**: snprintf support for uint64_t/int64_t.

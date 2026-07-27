@@ -7,6 +7,7 @@
 
 #include "bsp.h"
 #include "bsp/base_bsp.h"
+#include "hal/clock.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // Global BSP instance
@@ -29,6 +30,28 @@ bool Bsp::UartLogSink::write(Span<const uint8_t> message) {
 
 
 ///////////////////////////////////////////////////////////////////////////////
+// SysTick Scheduler clock implementation
+///////////////////////////////////////////////////////////////////////////////
+volatile uint32_t sys_tick_count = 0U;
+
+hal::SchedulerClock::TimePoint hal::SchedulerClock::now() noexcept {
+    return hal::SchedulerClock::TimePoint(std::chrono::milliseconds(sys_tick_count));
+}
+
+extern "C" {
+    void SysTick_Handler(void) {
+        sys_tick_count++;
+    }
+}
+
+void Bsp::configureSysTick() {
+    SysTick->LOAD = (Bsp::kSystemCoreClockHz / Bsp::kSysTickFrequencyHz) - 1U;
+    SysTick->VAL = 0;
+    SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
 // Bsp class implementation
 ///////////////////////////////////////////////////////////////////////////////
 bool Bsp::earlyInit() noexcept {
@@ -40,6 +63,9 @@ bool Bsp::earlyInit() noexcept {
     configureGpio();
     configureUsart1();
     setDebugLed(false);
+
+    configureSysTick();
+    __enable_irq();
 
     return true;
 }
