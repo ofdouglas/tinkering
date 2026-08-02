@@ -28,6 +28,15 @@ bool Bsp::UartLogSink::write(Span<const uint8_t> message) {
     return HAL_UART_Transmit(&huart_, const_cast<uint8_t*>(message.data()), static_cast<uint16_t>(message.size()), 1000) == HAL_OK;
 }
 
+// TODO: move this
+bool Bsp::uartWrite(Span<const uint8_t> message) {
+    return HAL_UART_Transmit(&huart1, const_cast<uint8_t*>(message.data()), static_cast<uint16_t>(message.size()), 1000) == HAL_OK;
+}
+
+// TODO:
+bool Bsp::uartRead(Span<uint8_t> output, size_t rx_num) {
+    return HAL_UART_Receive(&huart1, output.data(), rx_num, 0) == HAL_OK;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // SysTick Scheduler clock implementation
@@ -62,6 +71,7 @@ bool Bsp::earlyInit() noexcept {
     configureSystemClock();
     configureGpio();
     configureUsart1();
+    configureUsart6();
     setDebugLed(false);
 
     configureSysTick();
@@ -114,6 +124,26 @@ void Bsp::configureUsart1() {
     huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
     if (HAL_UART_Init(&huart1) != HAL_OK) {
         LOG_FATAL() << "USART1 init failed";
+    }
+
+    NVIC_SetPriority(USART1_IRQn, kUart1IrqPriority);
+    NVIC_EnableIRQ(USART1_IRQn);
+    __HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
+}
+
+void Bsp::configureUsart6() {
+    huart6.Instance = USART6;
+    huart6.Init.BaudRate = 115200;
+    huart6.Init.WordLength = UART_WORDLENGTH_8B;
+    huart6.Init.StopBits = UART_STOPBITS_1;
+    huart6.Init.Parity = UART_PARITY_NONE;
+    huart6.Init.Mode = UART_MODE_TX_RX;
+    huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart6.Init.OverSampling = UART_OVERSAMPLING_16;
+    huart6.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+    huart6.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+    if (HAL_UART_Init(&huart6) != HAL_OK) {
+        LOG_FATAL() << "USART6 init failed";
     }
 }
 

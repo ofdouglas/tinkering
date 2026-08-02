@@ -41,11 +41,19 @@ _estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
 _Min_Heap_Size = 0x200; /* required amount of heap */
 _Min_Stack_Size = 0x800; /* required amount of stack */
 
+/* Sector 3 */
+_TEST_FLASH_START = 0x08018000;
+_TEST_FLASH_END = _TEST_FLASH_START + 32K;
+
+/* Sector 5 */
+_APP_FLASH_START = 0x08040000;
+_APP_FLASH_END = _APP_FLASH_START + 256K;
+
 /* Memories definition */
 MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 320K
-  FLASH    (rx)    : ORIGIN = 0x08000000,   LENGTH = 64K
+  FLASH    (rx)   : ORIGIN = 0x08000000,   LENGTH = 64K
 }
 
 /* Sections */

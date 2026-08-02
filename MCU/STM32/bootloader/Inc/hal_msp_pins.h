@@ -14,4 +14,11 @@
 #define VCP_RX_Pin GPIO_PIN_7
 #define VCP_RX_GPIO_Port GPIOB
 
+
+/* USART6 */
+#define USART6_TX_Pin GPIO_PIN_6
+#define USART6_TX_GPIO_Port GPIOC
+#define USART6_RX_Pin GPIO_PIN_7
+#define USART6_RX_GPIO_Port GPIOC
+
 #endif /* HAL_MSP_PINS_H */

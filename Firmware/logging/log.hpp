@@ -26,6 +26,11 @@ enum class Level : uint8_t {
     Fatal,
 };
 
+enum class Radix : uint8_t {
+    Decimal,
+    Hexadecimal,
+};
+
 /** 
  * @brief   Logging sink interface
  * @details This interface is used to write log messages to a sink.
@@ -79,13 +84,26 @@ public:
         return *this;
     }
 
+    LocalLogger& operator<<(Radix radix) {
+        radix_ = radix;
+        return *this;
+    }
+
+    LocalLogger& operator<<(uint8_t value) {
+        return appendValue(radix_ == Radix::Decimal ? "%u" : "0x%X", value);
+    }
+
     LocalLogger& operator<<(int32_t value) {
-        return appendValue("%ld", value);
+        return appendValue(radix_ == Radix::Decimal ? "%ld" : "0x%lX", value);
     }
 
     LocalLogger& operator<<(uint32_t value) {
-        return appendValue("%lu", value);
+        return appendValue(radix_ == Radix::Decimal ? "%lu" : "0x%lX", value);
     }
+
+    LocalLogger& operator<<(size_t value) {
+        return appendValue("%lu", value);
+    }  
 
     // TODO: proper 64-bit support
     LocalLogger& operator<<(uint64_t value) {
@@ -128,6 +146,7 @@ private:
     const char* file_{nullptr};
     const uint32_t line_{0U};
     Level level_{Level::Info};
+    Radix radix_{Radix::Decimal};
     StaticString<> buffer_{};
 };
 

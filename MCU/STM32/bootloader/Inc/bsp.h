@@ -25,7 +25,12 @@ public:
     static constexpr uint32_t kSystemCoreClockHz = 200'000'000U;
     static constexpr uint32_t kSysTickFrequencyHz = 1000U;
 
+    // Data UART (ST-Link VCP)
     UART_HandleTypeDef huart1{};
+
+    // Debug UART (Arduino D0/D1)
+    UART_HandleTypeDef huart6{};
+
     GPIO_TypeDef* led_gpio = BSP_LED_GPIO_Port;
     uint16_t led_pin = BSP_LED_Pin;
 
@@ -36,7 +41,14 @@ public:
 
     void toggleDebugLed() noexcept override;
 
+    // TODO: deconflict with log sink
+    bool uartWrite(Span<const uint8_t> data);
+
+    bool uartRead(Span<uint8_t> output, size_t rx_num);
+
 private:
+    static constexpr uint8_t kUart1IrqPriority{3U};
+
     class UartLogSink : public logging::LogSink {
     public:
         explicit UartLogSink(UART_HandleTypeDef &huart);
@@ -49,9 +61,10 @@ private:
     void configureSystemClock();
     void configureSysTick();
     void configureGpio();
+    void configureUsart6();
     void configureUsart1();
 
-    UartLogSink uart_log_sink_{huart1};
+    UartLogSink uart_log_sink_{huart6};
     bool led_on_ = false;
 };
 

@@ -6,7 +6,7 @@ CPP_SOURCES = \
 	Src/bsp.cpp \
 	$(FIRMWARE_ROOT)/crc/crc.cpp \
 	$(FIRMWARE_ROOT)/hdlc/hdlc.cpp \
-	$(FIRMWARE_ROOT)/logging/log.cpp
+	$(FIRMWARE_ROOT)/logging/log.cpp 
 
 C_SOURCES = \
 	Src/stm32f7xx_hal_msp.c \
@@ -17,6 +17,7 @@ C_SOURCES = \
 	Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal.c \
 	Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_cortex.c \
 	Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_gpio.c \
+	Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_dma.c \
 	Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_rcc.c \
 	Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_rcc_ex.c \
 	Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_pwr.c \

@@ -7,6 +7,7 @@
 
 #include "main.h"
 #include "stm32f7xx_it.h"
+#include "stm32f746xx.h"
 
 void NMI_Handler(void) {
     while (1) {
