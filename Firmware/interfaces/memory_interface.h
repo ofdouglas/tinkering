@@ -1,5 +1,4 @@
-#ifndef INTERFACES_MEMORY_INTERFACE_H
-#define INTERFACES_MEMORY_INTERFACE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -35,5 +34,3 @@ static inline bool isWithinRegion(uint32_t address, uint32_t size, const Region&
 }
 
 } // namespace Memory
-
-#endif // INTERFACES_MEMORY_INTERFACE_H

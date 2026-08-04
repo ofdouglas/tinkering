@@ -8,46 +8,37 @@
 #include "main.h"
 #include "bsp.h"
 
-#include "bare_metal/task.h"
-#include "bare_metal/scheduler.h"
 #include "bootloader/image_header.h"
+#include "bootloader/mcu/bootloader.h"
+#include "bootloader/transport/hdlc_transport.h"
+
 #include "hal/clock.h"
 #include "hal/delay.h"
 #include "logging/log.hpp"
 #include "data_structures/ring_buffer.h"
 #include "hdlc/hdlc.h"
+#include "hdlc/protocol.h"
 
 #include "stm32f7xx_it.h"
 #include "stm32f746xx.h"
 
 ///////////////////////////////////////////////////////////////////////////////
-// Task implementations
+// Transport layer
 ///////////////////////////////////////////////////////////////////////////////
 
-volatile size_t uart_isr_count{};
-volatile size_t uart_task_count{};
-
-
-class LogTimeTask : public bare_metal::PeriodicTask {
-public:
-    LogTimeTask() : bare_metal::PeriodicTask(std::chrono::milliseconds(2000U)) {}
-
-    void tick() noexcept override {
-        const auto now = hal::SchedulerClock::now();
-        LOG_INFO() << "LogTimeTask tick. Scheduler clock: " << now.time_since_epoch().count();
-        LOG_INFO() << "UART ISR / Task count: " << uart_isr_count << " / " << uart_task_count;
-    }
-};
+constexpr size_t kUartRxRingCapacity{256U};
+constexpr size_t kHdlcPayloadBufferSize{Bootloader::kHdlcMaxPayloadBytes};
 
 uint8_t uart_rx_char{};
-RingBuffer<uint8_t, 64U> uart_rx_buffer{};
+uint32_t uart_isr_count{};
+uint8_t num_enqueue_errors{};
+RingBuffer<uint8_t, kUartRxRingCapacity> ring_buffer{};
 
 extern "C" {
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef* uart) {
     uart_isr_count++;
 
-    volatile char data = uart_rx_char;
-    uart_rx_buffer.enqueue(data);
+    num_enqueue_errors += ring_buffer.enqueue(uart_rx_char) ? 0U : 1U;
 
     __HAL_UART_ENABLE_IT(uart, UART_IT_RXNE);
     HAL_UART_Receive_IT(uart, &uart_rx_char, 1U);
@@ -58,44 +49,28 @@ void USART1_IRQHandler(void) {
 }
 } // extern "C"
 
-class UartTask :  public bare_metal::PeriodicTask {
+
+class UartHdlcStream : public Stream::StreamInterface {
 public:
-    UartTask() : bare_metal::PeriodicTask(std::chrono::milliseconds(100U)) {}
+    explicit UartHdlcStream(UART_HandleTypeDef& uart, RingBuffer<uint8_t, kUartRxRingCapacity>& ring_buffer) noexcept
+        : uart_(uart), ring_buffer_(ring_buffer) {}
 
-    void tick() noexcept override {
-        uint8_t next{};
-        while (index_ < (buffer_.size() + 1)) {
-            if (!uart_rx_buffer.dequeue(next)) {
-                break;
-            }
-
-            uart_task_count++;
-            buffer_[index_++] = static_cast<char>(next);
-            
-            if (next == '\n') {
-                buffer_[index_] = '\0';
-                LOG_INFO() << reinterpret_cast<char*>(buffer_.data());
-                index_ = 0;
-            }
-        }
+    size_t read(Span<uint8_t> data) noexcept override {
+        return ring_buffer_.dequeue(data);
+    }
+    
+    size_t write(Span<const uint8_t> data) noexcept override {
+        return HAL_UART_Transmit(&uart_, const_cast<uint8_t*>(data.data()), data.size(), 100U) == HAL_OK;
     }
 
 private:
-    std::array<char, 64U> buffer_{};
-    size_t index_{};
+    UART_HandleTypeDef& uart_;
+    RingBuffer<uint8_t, kUartRxRingCapacity>& ring_buffer_;
 };
 
-
-void runTasks() noexcept {
-    LogTimeTask log_time_task{};
-    UartTask uart_task{};
-    bare_metal::Scheduler<2U> scheduler{};
-
-    scheduler.addTask(&log_time_task);
-    scheduler.addTask(&uart_task);
-    scheduler.start();
-    scheduler.run();    // Does not return
-}
+UartHdlcStream uart_hdlc_stream{bsp.huart1, ring_buffer};
+Bootloader::HdlcTransport<kHdlcPayloadBufferSize> hdlc_transport{uart_hdlc_stream};
+Bootloader::Bootloader bootloader{bsp.memory_regions, hdlc_transport, bsp.system_reset};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Main function
@@ -109,9 +84,25 @@ int main(void) {
     // testFlash();
 
     HAL_UART_Receive_IT(&bsp.huart1, &uart_rx_char, 1U);
+
+
+    bootloader.initialize();
     LOG_INFO() << "Bootloader started.";
-    runTasks();
+
+    if (bootloader.validateApplication()) {
+        LOG_INFO() << "Bootable application found";
+    } else {
+        LOG_INFO() << "No bootable application found";
+    }
+
+    while (true) {
+        // tick() will eventually load the app if it is valid
+        if (bootloader.tick() == Bootloader::Bootloader::State::kFault) {
+            LOG_FATAL() << "Bootloader fault";
+            return 2;
+        }
+    }
 
     while (true) {} // Shouldn't get here
-    return 2;
+    return 3;
 }

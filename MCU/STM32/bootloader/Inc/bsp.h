@@ -14,11 +14,20 @@
 
 #include "bsp/base_bsp.h"
 #include "logging/log.hpp"
+#include "hal/reset_interface.h"
+#include "interfaces/memory_interface.h"
+#include "data_structures/span.h"
+
+#include <array>
 
 /* On-board indicator: GPIOI pin 3 (Arduino D7 on Discovery header) */
 #define BSP_LED_GPIO_Port GPIOI
 #define BSP_LED_Pin GPIO_PIN_3
 
+extern "C" {
+extern uint32_t _APP_FLASH_START;
+extern uint32_t _APP_FLASH_SIZE;
+}
 
 class Bsp : public BaseBsp {
 public:
@@ -34,17 +43,33 @@ public:
     GPIO_TypeDef* led_gpio = BSP_LED_GPIO_Port;
     uint16_t led_pin = BSP_LED_Pin;
 
-    /** HAL_Init, clocks, GPIO, USART1. */
+    class SystemReset : public hal::ResetInterface {
+    public:
+        void reset() noexcept override;
+    };
+
+    SystemReset system_reset{};
+
+    static constexpr uint32_t kAppRegionAttributes =
+        static_cast<uint32_t>(Memory::Region::Attributes::kReadable) |
+        static_cast<uint32_t>(Memory::Region::Attributes::kWriteable) |
+        static_cast<uint32_t>(Memory::Region::Attributes::kBootable) |
+        static_cast<uint32_t>(Memory::Region::Attributes::kIsFlash);
+
+    std::array<Memory::Region, 1U> memory_region_table_{{
+        {_APP_FLASH_START, _APP_FLASH_SIZE, kAppRegionAttributes, nullptr}
+    }};
+    Span<const Memory::Region> memory_regions{
+        memory_region_table_.data(),
+        memory_region_table_.size()
+    };
+
+    /** HAL_Init, clocks, GPIO, USART1, USART6. */
     bool earlyInit() noexcept override;
 
     void setDebugLed(bool on) noexcept override;
 
     void toggleDebugLed() noexcept override;
-
-    // TODO: deconflict with log sink
-    bool uartWrite(Span<const uint8_t> data);
-
-    bool uartRead(Span<uint8_t> output, size_t rx_num);
 
 private:
     static constexpr uint8_t kUart1IrqPriority{3U};

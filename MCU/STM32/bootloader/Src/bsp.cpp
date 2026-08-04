@@ -9,6 +9,8 @@
 #include "bsp/base_bsp.h"
 #include "hal/clock.h"
 
+#include "stm32f746xx.h"
+
 ///////////////////////////////////////////////////////////////////////////////
 // Global BSP instance
 ///////////////////////////////////////////////////////////////////////////////
@@ -28,15 +30,6 @@ bool Bsp::UartLogSink::write(Span<const uint8_t> message) {
     return HAL_UART_Transmit(&huart_, const_cast<uint8_t*>(message.data()), static_cast<uint16_t>(message.size()), 1000) == HAL_OK;
 }
 
-// TODO: move this
-bool Bsp::uartWrite(Span<const uint8_t> message) {
-    return HAL_UART_Transmit(&huart1, const_cast<uint8_t*>(message.data()), static_cast<uint16_t>(message.size()), 1000) == HAL_OK;
-}
-
-// TODO:
-bool Bsp::uartRead(Span<uint8_t> output, size_t rx_num) {
-    return HAL_UART_Receive(&huart1, output.data(), rx_num, 0) == HAL_OK;
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 // SysTick Scheduler clock implementation
@@ -45,6 +38,11 @@ volatile uint32_t sys_tick_count = 0U;
 
 hal::SchedulerClock::TimePoint hal::SchedulerClock::now() noexcept {
     return hal::SchedulerClock::TimePoint(std::chrono::milliseconds(sys_tick_count));
+}
+
+hal::PlatformClock::TimePoint hal::PlatformClock::now() noexcept {
+    return hal::PlatformClock::TimePoint(
+        std::chrono::duration_cast<hal::PlatformClock::Duration>(std::chrono::milliseconds(sys_tick_count)));
 }
 
 extern "C" {
@@ -166,4 +164,8 @@ void Bsp::setDebugLed(bool on) noexcept {
 void Bsp::toggleDebugLed() noexcept {
     setDebugLed(led_on_);
     led_on_ = !led_on_;
+}
+
+void Bsp::SystemReset::reset() noexcept {
+    NVIC_SystemReset();
 }

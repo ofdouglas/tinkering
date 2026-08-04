@@ -1,7 +1,6 @@
-#ifndef HAL_DELAY_H
-#define HAL_DELAY_H
+#pragma once
 
-#include "clock.h"
+#include "hal/clock.h"
 
 namespace hal {
 
@@ -19,5 +18,3 @@ void delayFor(typename ClockType::Duration d) {
 }
 
 } // namespace hal
-
-#endif // HAL_DELAY_H

@@ -102,13 +102,14 @@ public:
     }
 
     LocalLogger& operator<<(size_t value) {
-        return appendValue("%lu", value);
-    }  
-
-    // TODO: proper 64-bit support
-    LocalLogger& operator<<(uint64_t value) {
-        return appendValue("%lu", static_cast<uint32_t>(value));
+        return appendValue("%zu", value);
     }
+
+#if ULONG_MAX == UINT32_MAX
+    LocalLogger& operator<<(uint64_t value) {
+        return appendValue("%llu", static_cast<unsigned long long>(value));
+    }
+#endif
 
     // TODO: proper 64-bit support
     LocalLogger& operator<<(int64_t value) {
@@ -131,6 +132,14 @@ public:
 
     LocalLogger& operator<<(char c) {
         buffer_.append(c);
+        return *this;
+    }
+
+    // Hex dump
+    LocalLogger& operator<<(Span<uint8_t> data) {
+        for (auto d : data) {
+            appendValue("%02X", d);
+        }
         return *this;
     }
 

@@ -1,6 +1,8 @@
 *.d
 *.o
 *.su
+*.pyc
+*.pdf
 *.elf
 *.map
 *.cyclo

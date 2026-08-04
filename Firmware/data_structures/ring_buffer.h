@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "data_structures/span.h"
+
 /** @brief Queue which is thread-safe for a single producer and a single consumer.
   */
 template <typename T, size_t kCapacity>
@@ -53,6 +55,15 @@ public:
         return true;
     }
 
+    bool enqueue(Span<const T> items) {
+        for (const auto& item : items) {
+            if (!enqueue(item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool dequeue(T& item) {
         if (isEmpty()) {
             return false;
@@ -60,6 +71,17 @@ public:
         item = buffer_[read_index_];
         read_index_ = increment(read_index_);
         return true;
+    }
+
+    size_t dequeue(Span<T> data) {
+        size_t i = 0U;
+        while (i < data.size()) {
+            if (!dequeue(data[i])) {
+                break;
+            }
+            i++;
+        }
+        return i;
     }
 
     bool peek(T& item) const {

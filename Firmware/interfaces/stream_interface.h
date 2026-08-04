@@ -1,12 +1,11 @@
-#ifndef STREAM_INTERFACE_H
-#define STREAM_INTERFACE_H
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
 
 #include "data_structures/span.h"
 
-namespace Stream
+namespace Stream {
 
 class StreamInterface {
 public:
@@ -16,5 +15,3 @@ public:
 };
 
 } // namespace Stream
-
-#endif // STREAM_INTERFACE_H

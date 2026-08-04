@@ -1,5 +1,4 @@
-#ifndef RESET_INTERFACE_H
-#define RESET_INTERFACE_H
+#pragma once
 
 namespace hal {
 
@@ -11,5 +10,3 @@ public:
 };
 
 } // namespace hal
-
-#endif // HAL_RESET_INTERFACE_H

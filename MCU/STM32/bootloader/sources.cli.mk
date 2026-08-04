@@ -6,7 +6,8 @@ CPP_SOURCES = \
 	Src/bsp.cpp \
 	$(FIRMWARE_ROOT)/crc/crc.cpp \
 	$(FIRMWARE_ROOT)/hdlc/hdlc.cpp \
-	$(FIRMWARE_ROOT)/logging/log.cpp 
+	$(FIRMWARE_ROOT)/logging/log.cpp \
+	$(FIRMWARE_ROOT)/bootloader/mcu/bootloader.cpp
 
 C_SOURCES = \
 	Src/stm32f7xx_hal_msp.c \

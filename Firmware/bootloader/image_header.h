@@ -1,5 +1,4 @@
-#ifndef IMAGE_HEADER_H
-#define IMAGE_HEADER_H
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
@@ -105,5 +104,3 @@ static_assert(sizeof(ImageHeader_DataFile_v1) == 24U, "ImageHeader_DataFile_v1 s
 
 
 } // namespace Bootloader
-
-#endif // IMAGE_HEADER_H

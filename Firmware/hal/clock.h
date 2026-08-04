@@ -1,5 +1,4 @@
-#ifndef HAL_CLOCK_H
-#define HAL_CLOCK_H
+#pragma once
 
 #include <stdint.h>
 #include <chrono>
@@ -38,5 +37,3 @@ struct SchedulerClock {
 };
 
 } // namespace hal
-
-#endif // HAL_CLOCK_H
