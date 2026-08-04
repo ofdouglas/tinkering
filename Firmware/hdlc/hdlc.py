@@ -13,8 +13,10 @@ def hdlc_byte_transform(input: int) -> bytes:
 
 
 # Create an HDLC frame from a message, with byte stuffing
-# Does not include a trailing HDLC_FRAME_BYTE.
-def hdlc_encode(input: bytes) -> bytes:
+# By default, does not include a trailing HDLC_FRAME_BYTE.
+def hdlc_encode(input: bytes, trailing: bool) -> bytes:
+    if trailing:
+        return HDLC_FRAME_BYTE + b''.join(hdlc_byte_transform(b) for b in input) + HDLC_FRAME_BYTE
     return HDLC_FRAME_BYTE + b''.join(hdlc_byte_transform(b) for b in input)
 
 

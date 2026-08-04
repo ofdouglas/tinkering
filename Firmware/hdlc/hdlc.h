@@ -25,6 +25,7 @@ namespace Hdlc {
     public:
         virtual ~ReceiverInterface() = default;
         virtual void reset() = 0;
+        virtual bool enqueue(uint8_t data) = 0;
         virtual bool enqueue(Span<const uint8_t> data) = 0;
         virtual bool process() = 0;
         virtual size_t receivePayload(Span<uint8_t> output) = 0;
@@ -47,6 +48,10 @@ namespace Hdlc {
             state_ = State::IDLE;
             payload_index_ = 0U;
             input_buffer_.clear();
+        }
+
+        bool enqueue(uint8_t data) override {
+            return input_buffer_.enqueue(data);
         }
 
         bool enqueue(Span<const uint8_t> data) override {

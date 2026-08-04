@@ -13,9 +13,11 @@ namespace Hdlc {
   * Protocol Types: The first byte of the HDLC frame is the protocol type.
   */
 enum class ProtocolType : uint8_t {
-    ASCII_TEXT     = 0xF0, // Raw text stream
-    VIRTUAL_CAN    = 0xE1, // Virtual CAN bus: {uint16_t id, uint8_t data[8], uint32_t crc} (fixed 8 byte payload size)
-    MEM_TRANSFER   = 0xD2  // Memory transfer: {uint32_t address, uint16_t size, uint8_t data[64], uint32_t crc}
+    ASCII_TEXT      = 0xF0, // Raw text stream
+    BOOTLOADER_MSG  = 0xE1, // 8 bytes + CRC-8
+    BOOTLOADER_SEG  = 0xD2, // MemTransferSegment<64U> + CRC-32
+
+    //    VIRTUAL_CAN     = 0xE1, // Virtual CAN bus: {uint16_t id, uint8_t data[8], uint32_t crc} (fixed 8 byte payload size)
 };
 
 struct ProtocolDescriptor {
@@ -33,18 +35,6 @@ public:
   virtual bool receive(Span<const uint8_t> payload) = 0;
 };
 
-class VirtualCanProtocolRxHandler : public ProtocolRxHandlerInterface {
-public:
-  static constexpr ProtocolDescriptor descriptor {ProtocolType::VIRTUAL_CAN, 8U, 8U};
-
-  VirtualCanProtocolRxHandler() = default;
-  ~VirtualCanProtocolRxHandler() override = default;
-
-  ProtocolDescriptor protocolDescriptor() const override {
-    return descriptor;
-  }
-};
-
 class AsciiTextProtocolRxHandler : public ProtocolRxHandlerInterface {
 public:
   static constexpr ProtocolDescriptor descriptor {ProtocolType::ASCII_TEXT, 0U, 64U};
@@ -56,6 +46,41 @@ public:
     return descriptor;
   }
 };
+
+
+class BootloaderMessageProtocolRxHandler : public ProtocolRxHandlerInterface {
+public:
+  static constexpr ProtocolDescriptor descriptor {ProtocolType::BOOTLOADER_MSG, 8U, 8U};
+
+  BootloaderMessageProtocolRxHandler() = default;
+  ~BootloaderMessageProtocolRxHandler() override = default;
+
+  ProtocolDescriptor protocolDescriptor() const override {
+    return descriptor;
+  }
+
+  bool receive(Span<const uint8_t> payload) override {
+    // TODO: parse message
+    return true;
+  }
+};
+
+class BootloaderSegmentProtocolRxHandler : public ProtocolRxHandlerInterface {
+public:
+  static constexpr ProtocolDescriptor descriptor {ProtocolType::BOOTLOADER_SEG, 64U, 64U};
+
+  BootloaderSegmentProtocolRxHandler() = default;
+  ~BootloaderSegmentProtocolRxHandler() override = default;
+
+  ProtocolDescriptor protocolDescriptor() const override {
+    return descriptor;
+  }
+
+  bool receive(Span<const uint8_t> payload) override {
+    return true;
+  }
+};
+
 
 class RxRouter {
 public:
