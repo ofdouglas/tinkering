@@ -5,11 +5,13 @@
 #include <cstddef>
 #include <array>
 #include <cstring>
+#include <algorithm>
 
 #include "data_structures/ring_buffer.h"
-#include "data_structures/span.h"
+#include "util/span.h"
+#include "logging/logging.h"
 
-namespace Hdlc {
+namespace hdlc {
 
     struct HdlcFlag {
         static constexpr uint8_t kFlag     = 0x7E;
@@ -17,18 +19,18 @@ namespace Hdlc {
         static constexpr uint8_t kXorValue = 0x20;
     };
 
-    size_t byteStuff(uint8_t byte, Span<uint8_t> out);
-    bool encodeFrame(Span<const uint8_t> payload, Span<uint8_t> frame);
-    bool decodePayload(Span<const uint8_t> input, Span<uint8_t> output);
+    size_t byteStuff(uint8_t byte, util::Span<uint8_t> out);
+    bool encodeFrame(util::Span<const uint8_t> payload, util::Span<uint8_t> frame);
+    bool decodePayload(util::Span<const uint8_t> input, util::Span<uint8_t> output);
 
     class ReceiverInterface {
     public:
         virtual ~ReceiverInterface() = default;
         virtual void reset() = 0;
         virtual bool enqueue(uint8_t data) = 0;
-        virtual bool enqueue(Span<const uint8_t> data) = 0;
+        virtual bool enqueue(util::Span<const uint8_t> data) = 0;
         virtual bool process() = 0;
-        virtual size_t receivePayload(Span<uint8_t> output) = 0;
+        virtual size_t receivePayload(util::Span<uint8_t> output) = 0;
     };
 
     template <size_t PayloadBufferSize, size_t InputRingCapacity = PayloadBufferSize * 2U + 8U>
@@ -40,6 +42,16 @@ namespace Hdlc {
             DATA,
             ESCAPE
         };
+
+        static const char* toString(State state) {
+            switch (state) {
+                case State::IDLE: return "IDLE";
+                case State::FRAME_DELIMETER: return "FRAME_DELIMETER";
+                case State::DATA: return "DATA";
+                case State::ESCAPE: return "ESCAPE";
+                default: return "UNKNOWN";
+            }
+        }
 
     public:
         Receiver() = default;
@@ -54,7 +66,7 @@ namespace Hdlc {
             return input_buffer_.enqueue(data);
         }
 
-        bool enqueue(Span<const uint8_t> data) override {
+        bool enqueue(util::Span<const uint8_t> data) override {
             for (size_t i = 0U; i < data.size(); i++) {
                 if (!input_buffer_.enqueue(data[i])) {
                     return false;
@@ -63,7 +75,7 @@ namespace Hdlc {
             return true;
         }
 
-        bool process(Span<const uint8_t> data) {
+        bool process(util::Span<const uint8_t> data) {
             if (!enqueue(data)) {
                 return false;
             }
@@ -79,6 +91,7 @@ namespace Hdlc {
                 switch (state_) {
                     case State::IDLE:
                         if (data == HdlcFlag::kFlag) {
+                            payload_index_ = 0U;
                             state_ = State::FRAME_DELIMETER;
                         }
                         break;
@@ -89,7 +102,7 @@ namespace Hdlc {
                         } else if (data == HdlcFlag::kEscape) {
                             state_ = State::ESCAPE;
                         } else if (payload_index_ >= PayloadBufferSize) {
-                            reset();
+                            logPayloadBufferOverflow();
                             return false;
                         } else {
                             payload_buffer_[payload_index_++] = data;
@@ -99,7 +112,7 @@ namespace Hdlc {
 
                     case State::ESCAPE:
                         if (payload_index_ >= PayloadBufferSize) {
-                            reset();
+                            logPayloadBufferOverflow();
                             return false;
                         }
                         payload_buffer_[payload_index_++] = static_cast<uint8_t>(data ^ HdlcFlag::kXorValue);
@@ -113,7 +126,7 @@ namespace Hdlc {
                         } else if (data == HdlcFlag::kEscape) {
                             state_ = State::ESCAPE;
                         } else if (payload_index_ >= PayloadBufferSize) {
-                            reset();
+                            logPayloadBufferOverflow();
                             return false;
                         } else {
                             payload_buffer_[payload_index_++] = data;
@@ -121,6 +134,7 @@ namespace Hdlc {
                         break;
 
                     default:
+                        LOG_ERROR() << "Invalid state";
                         reset();
                         return false;
                 }
@@ -128,7 +142,7 @@ namespace Hdlc {
             return false;
         }
 
-        size_t receivePayload(Span<uint8_t> output) override {
+        size_t receivePayload(util::Span<uint8_t> output) override {
             if (state_ != State::FRAME_DELIMETER) {
                 return 0U;
             }
@@ -142,6 +156,13 @@ namespace Hdlc {
             return result;
         }
 
+        void logPayloadBufferOverflow() {
+            const size_t dump_len = std::min(payload_index_, size_t{8U});
+            util::Span<uint8_t> payload_first8{payload_buffer_.data(), dump_len};
+            LOG_ERROR() << "Payload buffer overflow in state " << toString(state_) << ": " << payload_first8;
+            reset();
+        }
+
     private:
         RingBuffer<uint8_t, InputRingCapacity> input_buffer_;
         std::array<uint8_t, PayloadBufferSize> payload_buffer_;
@@ -149,5 +170,5 @@ namespace Hdlc {
         State state_{State::IDLE};
     };
 
-} // namespace Hdlc
+} // namespace hdlc
 #endif // HDLC_H

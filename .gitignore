@@ -1,5 +1,7 @@
 *.d
 *.o
+*.a.out
+*.h.gch
 *.su
 *.pyc
 *.pdf

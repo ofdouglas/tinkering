@@ -1,9 +1,9 @@
-#include "hdlc.h"
+#include "hdlc/hdlc.h"
 #include <cstring>
 
-namespace Hdlc {
+namespace hdlc {
 
-    size_t byteStuff(uint8_t byte, Span<uint8_t> out) {
+    size_t byteStuff(uint8_t byte, util::Span<uint8_t> out) {
         if (out.size() < 1U) {
             return 0U;
         }
@@ -19,7 +19,7 @@ namespace Hdlc {
         return 1U;
     }
 
-    bool encodeFrame(Span<const uint8_t> payload, Span<uint8_t> frame) {
+    bool encodeFrame(util::Span<const uint8_t> payload, util::Span<uint8_t> frame) {
         if (frame.size() < payload.size() + 2U) {
             return false;
         }
@@ -28,7 +28,7 @@ namespace Hdlc {
 
         for (size_t i = 0; i < payload.size(); i++) {
             uint8_t stuff[2];
-            const size_t stuff_len = byteStuff(payload[i], Span<uint8_t>(stuff, 2U));
+            const size_t stuff_len = byteStuff(payload[i], util::Span<uint8_t>(stuff, 2U));
             if (stuff_len == 0U) {
                 return false;
             }
@@ -43,7 +43,7 @@ namespace Hdlc {
         return true;
     }
 
-    bool decodePayload(Span<const uint8_t> input, Span<uint8_t> output) {
+    bool decodePayload(util::Span<const uint8_t> input, util::Span<uint8_t> output) {
         size_t output_index = 0;
         bool stuff_flag = false;
 
@@ -65,8 +65,8 @@ namespace Hdlc {
         return output_index > 0U;
     }
 
-} // namespace Hdlc
+} // namespace hdlc
 
-constexpr uint8_t Hdlc::HdlcFlag::kFlag;
-constexpr uint8_t Hdlc::HdlcFlag::kEscape;
-constexpr uint8_t Hdlc::HdlcFlag::kXorValue;
+constexpr uint8_t hdlc::HdlcFlag::kFlag;
+constexpr uint8_t hdlc::HdlcFlag::kEscape;
+constexpr uint8_t hdlc::HdlcFlag::kXorValue;
