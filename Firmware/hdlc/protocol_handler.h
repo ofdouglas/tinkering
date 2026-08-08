@@ -29,7 +29,7 @@ public:
 class AsciiTextProtocolRxHandler : public ProtocolRxHandlerInterface {
 public:
     static constexpr ProtocolDescriptor descriptor{
-        ServiceType::ASCII_TEXT, 0U, 64U};
+        static_cast<ServiceType>(0x12U), 0U, 64U}; // unassigned common ID (placeholder)
 
     AsciiTextProtocolRxHandler() = default;
     ~AsciiTextProtocolRxHandler() override = default;
@@ -45,7 +45,7 @@ public:
 class BootloaderMessageProtocolRxHandler : public ProtocolRxHandlerInterface {
 public:
     static constexpr ProtocolDescriptor descriptor{
-        ServiceType::BOOTLOADER_CMD, 8U, 8U};
+        ServiceType::kBootloaderCommand, 8U, 8U};
 
     BootloaderMessageProtocolRxHandler() = default;
     ~BootloaderMessageProtocolRxHandler() override = default;
@@ -61,7 +61,7 @@ public:
 class BootloaderSegmentProtocolRxHandler : public ProtocolRxHandlerInterface {
 public:
     static constexpr ProtocolDescriptor descriptor{
-        ServiceType::BOOTLOADER_SEG, 64U, 64U};
+        ServiceType::kBootloaderSegment, 64U, 64U};
 
     BootloaderSegmentProtocolRxHandler() = default;
     ~BootloaderSegmentProtocolRxHandler() override = default;

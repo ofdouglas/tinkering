@@ -123,17 +123,38 @@ Optional header fields immediately follow the fixed base header. The `extensions
 
 This 40 byte limit is arbitrary and could be revised before the design is frozen. The rationale for choosing it is that we want to set a maximum size for the frame based on the CRC performance, and 40 is both 1) an insignificant percentage of the available frame space, and 2) very large relative to the types of extensions that are likely to be added. For example, the addressing header extension shown below would only need 4 bytes.
 
-No extensions are defined yet. A possible future extension is addressing, for multi-drop communication:
+### Header Extension Table
 
-``` text
-Addressing Extension
-+-------------------+
-| destination : 16  |
-| source      : 16  |
-+-------------------+
-```
+No header extensions are defined yet. This table will be the authoratative source for extensions if they are defined in future protocol versions. 
+
+| Extension Bit  | Extension Size | Extension Name |
+|:---------------|:---------------|:---------------|
+| 3 (MSB)        | TBD            | NA / reserved  |
+| 2              | TBD            | NA / reserved  |
+| 1              | TBD            | NA / reserved  |
+| 0 (LSB)        | TBD            | NA / reserved  |
+
+
+### Header Concatenation
+
+One possible future extension is addressing, for multi-drop communication. As an example of header extension (not as a concrete design proposal), consider the following hypothetical *Addressing Extension Header* (4 bytes):
+| Field             | Width    | Description                                            |
+|:------------------|:---------|:-------------------------------------------------------|
+| `source_addr`     | 16 bits  | Identifies the host that sent this frame               |
+| `destination_addr`| 16 bits  | Identifies the hosts that should consume this frame    |
 
 Header extension bytes shall be concatenated after the base header in order from LSB to MSB of `extensions`. Header extensions will likely all be 2-byte aligned, but that is not defined yet. Unknown or unsupported extension combinations shall cause the frame to be rejected rather than guessed or partially interpreted.
+
+Here is an example of a full frame with the hypothetical *Addressing Extension Header* enabled:
+| Field             | Size     | Value (if relevant) |
+|:------------------|:---------|:-------|
+| `crc16`           | 16 bits  | -      |
+| `service_type`    | 8 bits   | -      |
+| `extensions`      | 4 bits   | 0010 *(example value if (AddressExtension := (1 << 1U))*  |
+| `flow_control`    | 4 bits   | -      |
+| `source_addr`     | 16 bits  | -      |
+| `destination_addr`| 16 bits  | -      |
+| `payload`         | Defined by `service_type` | - |
 
 
 ## Services
@@ -145,10 +166,60 @@ In addition to defining the application layer, the Service may provide any funct
 -   fragmentation/reassembly;
 -   retransmission or reliability behavior;
 
-Valid Service IDs are in the range [1, 255].
+Services don't receive the base protocol header; they only receive the `ServicePayload`. Whether or not services will receive certain header extensions, and the semantics of doing so, will be defined when the given header extension bit is defined.
 
-Services don't receive the base header; they only receive the `ServicePayload`. Whether or not services will receive certain header extensions, and the semantics of doing so, will be defined when the given header extension bit is defined.
+### Service ID allocation
 
+Each frame’s `service_type` is an 8-bit ID in **`[1, 255]`**. **`0` is forbidden** (treat as unset or parse error). IDs are grouped by **the upper four bits** (`id >> 4`), except that the `0x0*` byte is split: only **`0x01`–`0x0F`** are valid **intrinsic** IDs; **`0x00`** remains invalid.
+
+| Range (hex)   | Decimal   | Quantity    | Category    | Who defines IDs                         |
+|---------------|-----------|-------------|-------------|-----------------------------------------|
+| `0x00`        | 0         | 1           | *(invalid)* | —                                       |
+| `0x01`–`0x0F` | 1–15      | 15          | Intrinsic   | Protocol spec (optional stack features) |
+| `0x10`–`0x2F` | 16–47     | 32          | Common      | Firmware platform libraries (shared)    |
+| `0x30`–`0x9F` | 48–159    | 112         | Reserved    | Future protocol revisions               |
+| `0xA0`–`0xDF` | 160–223   | 64          | Project (stable) | Per product; documented for sustained firmware |
+| `0xE0`–`0xFF` | 224–255   | 32          | Project (ephemeral) | Bring-up and experiments only; not stable |
+
+**Intrinsic** services ship with the link stack (e.g. Network Management). **Common** services are reusable across projects (e.g. bootloader) with stable IDs in this document.
+
+**Project (stable)** IDs are assigned for a specific product or board and documented in that product’s materials (README, host config). They are not globally unique across unrelated projects. The stable band is **`0xA0`–`0xDF` (64 IDs)**. If more stable IDs are needed later, the stable band may **expand downward** into the Reserved range (`0x30`–`0x9F`) in a future spec revision; the ephemeral band at the top of the address space stays fixed.
+
+**Project (ephemeral)** IDs occupy **`0xE0`–`0xFF` (32 IDs)** — the highest values. Use them for temporary services during development. They are not reserved, may collide across branches or developers, and must not be documented as release interfaces. When a service outgrows MVP, assign a new ID in the stable band and stop using the ephemeral ID (update host tools and firmware; the old ID may be left unhandled or rejected).
+
+Receivers may use `id >> 4` for coarse policy (e.g. reject reserved range until assigned). Unknown IDs in an otherwise valid category are reported via Network Management (`Unsupported service type`) when NM is implemented.
+
+#### Intrinsic service registry
+
+Provided by the protocol implementation. Additional intrinsic services are expected to be **optional** at compile or run time.
+
+| ID (dec) | ID (hex) | Name                | Purpose                                      |
+|----------|----------|---------------------|----------------------------------------------|
+| 1        | `0x01`   | NetworkManagement   | Protocol errors, capabilities, link health   |
+| 2–15     | `0x02`–`0x0F` | —            | Reserved                                     |
+
+#### Common service registry
+
+Provided by optional `Firmware/` libraries. Host and MCU must agree on which common services are enabled on a given link.
+
+| ID (dec) | ID (hex) | Name                | Purpose                                                |
+|----------|----------|---------------------|--------------------------------------------------------|
+| 16       | `0x10`   | BootloaderCommand   | Client ↔ bootloader traffic except memory segments       |
+| 17       | `0x11`   | BootloaderSegment   | Client ↔ bootloader memory segment transfers           |
+| 18–47    | `0x12`–`0x2F` | —            | Reserved for future platform services                  |
+
+#### Project services
+
+Project-local IDs are split into two sub-ranges:
+
+| Sub-range (hex) | Decimal   | Role | Guidance |
+|-----------------|-----------|------|----------|
+| `0xA0`–`0xDF` | 160–223 | **Stable** | Document per product; use in release host tools and sustained firmware |
+| `0xE0`–`0xFF` | 224–255 | **Ephemeral** | Prototyping only; collision risk; never treat as a shipping contract |
+
+No central registry is required. **Graduation** from ephemeral to stable means picking an unused stable ID, updating product documentation and clients, and abandoning the ephemeral ID — not redefining the ephemeral byte in place.
+
+Future spec revisions may enlarge the stable band downward into **`0x30`–`0x9F`** (Reserved). **`0xE0`–`0xFF` remains ephemeral** so experiments always use the same high sandbox regardless of how large the stable band grows.
 
 ## Network Management Service
 

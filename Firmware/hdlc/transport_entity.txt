@@ -1,0 +1,30 @@
+Transport Entity: Transport Interface
+
+Public API:
+
+    // RX (polled -> callbacks)
+    setErrorCallback()
+    setReceiveCallback(ServiceType, callback)
+    runAllReceive() // Invokes service callback(s)
+
+    // TX
+    sendFrame(ServiceType, frame (Span))
+
+    // TODO: diagnostics / metrics types and methods
+    // - Num bytes RXd / TXd, Num errors, for a Service
+    // - Buffer capacity and sizes, MTU
+    // - Any other link status information
+
+Properties:
+
+    input, output buffer size configuration
+    supported service types configuration
+
+Private API:
+
+    stuffByte()
+    unstuffByte()
+    encodeFrame()
+    ... decode helpers
+
+Uses the Receiver class which uses Ring Buffer.

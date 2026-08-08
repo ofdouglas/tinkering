@@ -125,7 +125,7 @@ TEST(HdlcRxRouter, DispatchesBootloaderCommand) {
     static const uint8_t kCmdPayload[] = {
         0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U, 0x08U};
     uint8_t routed_frame[1U + sizeof(kCmdPayload)];
-    routed_frame[0U] = static_cast<uint8_t>(hdlc::ServiceType::BOOTLOADER_CMD);
+    routed_frame[0U] = static_cast<uint8_t>(hdlc::ServiceType::kBootloaderCommand);
     std::memcpy(routed_frame + 1U, kCmdPayload, sizeof(kCmdPayload));
     ASSERT_TRUE(router.route(routed_frame));
     EXPECT_TRUE(cmd_handler.receive_called());
@@ -138,9 +138,9 @@ TEST(HdlcRxRouter, RejectsInvalidFrames) {
     hdlc::ProtocolRxHandlerInterface* handlers[] = {&cmd_handler};
     hdlc::RxRouter router{util::Span<hdlc::ProtocolRxHandlerInterface*>(handlers)};
     static const uint8_t kShortFrame[] = {
-        static_cast<uint8_t>(hdlc::ServiceType::BOOTLOADER_CMD), 0xAAU};
+        static_cast<uint8_t>(hdlc::ServiceType::kBootloaderCommand), 0xAAU};
     EXPECT_FALSE(router.route(kShortFrame));
     static const uint8_t kUnknownType[] = {
-        static_cast<uint8_t>(hdlc::ServiceType::BOOTLOADER_SEG), 0x00U};
+        static_cast<uint8_t>(hdlc::ServiceType::kBootloaderSegment), 0x00U};
     EXPECT_FALSE(router.route(kUnknownType));
 }
