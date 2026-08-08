@@ -4,25 +4,13 @@
 #include <type_traits>
 #include <limits>
 
-#include "data_structures/span.h"
-#include "data_structures/static_string.h"
-
-/******************************************************************************
- *  UintVariant Helpers
- *  TODO: move to a separate file
- ******************************************************************************/
-#include <variant>
-#include <type_traits>
-
-// This is used to dispatch to EXPECT_EQ() with correct uint type so failures print cleanly.
-using UintVariant = std::variant<uint8_t, uint16_t, uint32_t, uint64_t>;
-
-
-
+#include "util/span.h"
+#include "util/static_string.h"
 
 namespace crc::details {
 
 // CRC algorithm name string
+// TODO: detect truncation / name overflow
 static constexpr size_t kMaxNameLength = 16U;
 using NameString = StaticString<kMaxNameLength>;
 
