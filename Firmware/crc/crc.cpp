@@ -2,23 +2,35 @@
 
 namespace crc {
 
-uint8_t crcSaeJ1850(Span<const uint8_t> input) {
-    const uint8_t kPolynomial = 0x1D;
-    const uint8_t kTestBit    = 0x80;
-    uint8_t result = 0xFF;
+// // TODO: use link-seam injection later, so projects can have different CRC implementations
 
-    for (auto x : input) {
-        result ^= x;
-        for (int i = 0; i < 8; i++) {
-            if (result & kTestBit) {
-                result = (result << 1U) ^ kPolynomial;
-            } else {
-                result <<= 1U;
-            }
-        }
-    }
+// SaeJ1850::value_type SaeJ1850::compute(Span<const uint8_t> input) {
+//     return crcBitwise<SaeJ1850>(input);
+// }
 
-    return static_cast<uint8_t>(~result);
-}
+// Crc16Ccitt::value_type Crc16Ccitt::compute(Span<const uint8_t> input) {
+//     return crcBitwise<Crc16Ccitt>(input);
+// }
+
+
+
+// uint8_t crcSaeJ1850(Span<const uint8_t> input) {
+//     const uint8_t kPolynomial = 0x1D;
+//     const uint8_t kTestBit    = 0x80;
+//     uint8_t result = 0xFF;
+
+//     for (auto x : input) {
+//         result ^= x;
+//         for (int i = 0; i < 8; i++) {
+//             if (result & kTestBit) {
+//                 result = (result << 1U) ^ kPolynomial;
+//             } else {
+//                 result <<= 1U;
+//             }
+//         }
+//     }
+
+//     return static_cast<uint8_t>(~result);
+// }
 
 } // namespace crc

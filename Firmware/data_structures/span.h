@@ -7,6 +7,9 @@
 template <typename T>
 class Span {
 public:
+    /******************************************************************************
+     *  Constructors
+     ******************************************************************************/
     Span() = default;
     Span(T* data, size_t size) : data_(data), size_(size) {}
 
@@ -19,28 +22,42 @@ public:
     template <size_t N>
     Span(const std::array<T, N>& array) : data_(array.data()), size_(N) {}
 
+    /******************************************************************************
+     *  Size Getters
+     ******************************************************************************/
+    size_t size() const { return size_; }
+    bool empty() const { return size_ == 0U; }
+
+    /******************************************************************************
+     *  Data Accessors
+     ******************************************************************************/
     const T& operator[](size_t i) const {
         return data_[i];
     }
-
     T& operator[](size_t i) {
         return data_[i];
     }
 
-    T* data() const { return data_; }
+    const T* data() const { return data_; }
     T* data() { return data_; }
 
-    T* begin() const { return data_; }
-    T* end() const { return data_ + size_; }
+    const T* begin() const { return data_; }
+    T* begin() { return data_; }
 
-    size_t size() const { return size_; }
-    bool empty() const { return size_ == 0U; }
+    const T* end() const { return data_ + size_; }
+    T* end() { return data_ + size_; }
 
-    Span<T> subspan(size_t start, size_t length) const {
+    const Span<T> subspan(size_t start, size_t length) const {
+        return Span<T>(data_ + start, length);
+    }
+    Span<T> subspan(size_t start, size_t length) {
         return Span<T>(data_ + start, length);
     }
 
-    Span<T> subspan(size_t start) const {
+    const Span<T> subspan(size_t start) const {
+        return Span<T>(data_ + start, size_ - start);
+    }
+    Span<T> subspan(size_t start) {
         return Span<T>(data_ + start, size_ - start);
     }
 

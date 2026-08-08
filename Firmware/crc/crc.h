@@ -5,31 +5,26 @@
 #include <limits>
 
 #include "data_structures/span.h"
+#include "data_structures/static_string.h"
 
-namespace crc {
+/******************************************************************************
+ *  UintVariant Helpers
+ *  TODO: move to a separate file
+ ******************************************************************************/
+#include <variant>
+#include <type_traits>
 
-/**
- * @brief  Specification for a CRC algorithm.
- *
- * @tparam T           The CRC integer type (e.g. uint16_t for CRC-16)
- * @tparam kPolynomial The polynomial of the CRC algorithm
- * @tparam kInitial    The initial value of the CRC algorithm
- * @tparam kXorOut     The XOR output value of the CRC algorithm
- * @tparam reflectIn   Whether to reflect the input data
- * @tparam reflectOut  Whether to reflect the output data
- */
-template <typename T, T kPolynomial, T kInitial, T kXorOut, bool reflectIn, bool reflectOut>
-struct Spec {
-    static_assert(std::is_integral_v<T>, "T must be an integral type");
-    static_assert(std::is_unsigned_v<T>, "T must be an unsigned type");
+// This is used to dispatch to EXPECT_EQ() with correct uint type so failures print cleanly.
+using UintVariant = std::variant<uint8_t, uint16_t, uint32_t, uint64_t>;
 
-    using value_type = T;
-    static constexpr T polynomial     = kPolynomial;
-    static constexpr T initial        = kInitial;
-    static constexpr T xorOut         = kXorOut;
-    static constexpr bool reflect_in  = reflectIn;
-    static constexpr bool reflect_out = reflectOut;
-};
+
+
+
+namespace crc::details {
+
+// CRC algorithm name string
+static constexpr size_t kMaxNameLength = 16U;
+using NameString = StaticString<kMaxNameLength>;
 
 /**
  * @brief Calculate the CRC of a given input data using the bitwise algorithm.
@@ -41,41 +36,77 @@ struct Spec {
  * @todo Handle reflect_in and reflect_out
  * @todo Support incremental processing (update, ... finalize)
  */
-template <typename Spec>
-typename Spec::value_type crcBitwise(Span<const uint8_t> input) {
-    using T = typename Spec::value_type;
+ template <typename Derived>
+ typename Derived::value_type crcBitwise(Span<const uint8_t> input) {
+    using T = typename Derived::value_type;
     static_assert(std::is_integral<T>::value, "T must be an integral type");
     static_assert(std::is_unsigned<T>::value, "T must be an unsigned type");
 
     constexpr T kMsbBit = static_cast<T>((std::numeric_limits<T>::max() >> 1U) + 1U);
-    T result = Spec::initial;
+    T result = Derived::initial;
 
     for (auto x : input) {
         result ^= x;
         for (int i = 0; i < 8; i++) {
             if (result & kMsbBit) {
-                result = (result << 1U) ^ Spec::polynomial;
+                result = (result << 1U) ^ Derived::polynomial;
             } else {
                 result <<= 1U;
             }
         }
     }
 
-    return result ^ Spec::xorOut;
+    return result ^ Derived::xorOut;
 }
 
-
-/*
- * @brief CRC specifications for various algorithms.
+/**
+ * @brief  Specification for a CRC algorithm.
  *
- * @todo Add more specifications
+ * @tparam Derived The derived class type (a specific CRC algorithm)
+ * @tparam T       The CRC integer type (e.g. uint16_t for CRC-16)
+ * @tparam kPoly   The polynomial of the CRC algorithm
+ * @tparam kInit   The initial value of the CRC algorithm
+ * @tparam kXorOut The XOR output value of the CRC algorithm
+ * @tparam refIn   Whether to reflect the input data
+ * @tparam refOut  Whether to reflect the output data
  */
-using SaeJ1850 = Spec<uint8_t, 0x1D, 0xFF, 0x3B, false, false>;
+template <typename Derived, typename T, T kPoly, T kInit, T kXorOut, bool refIn, bool refOut>
+struct SpecImpl {
+    static_assert(std::is_integral_v<T>, "T must be an integral type");
+    static_assert(std::is_unsigned_v<T>, "T must be an unsigned type");
 
+    using value_type = T;
+    static constexpr T polynomial     = kPoly;
+    static constexpr T initial        = kInit;
+    static constexpr T xorOut         = kXorOut;
+    static constexpr bool reflect_in  = refIn;
+    static constexpr bool reflect_out = refOut;
 
-enum class CrcSpecTag {
-    SaeJ1850,
+    // TODO: return a StringView instead?
+    static constexpr const char* name() { return Derived::name(); }
+
+    // Implementation defined via link-seam injection?
+    static constexpr value_type compute(Span<const uint8_t> input) {
+        return details::crcBitwise<Derived>(input);
+    }
+
+    // TODO: support incremental processing (update, ... finalize)
 };
 
+} // namespace crc::details
+
+namespace crc {
+
+struct SaeJ1850 : details::SpecImpl<SaeJ1850, uint8_t, 0x1D, 0xFF, 0xFF, false, false> {
+    static constexpr const char* name() { return "SaeJ1850"; }
+};
+
+struct AutosarCrc8 : details::SpecImpl<AutosarCrc8, uint8_t, 0x2F, 0xFF, 0xFF, false, false> {
+    static constexpr const char* name() { return "AutosarCrc8"; }
+};
+
+// struct Crc16Ccitt : details::SpecImpl<Crc16Ccitt, uint16_t, 0x1021, 0xFFFF, 0x0000, true, true> {
+//     static constexpr const char* name() { return "Crc16Ccitt"; }
+// };
 
 } // namespace crc
