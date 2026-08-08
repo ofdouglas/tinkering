@@ -1,5 +1,9 @@
 #pragma once
-
+/*
+ * @file  ring_buffer.h
+ * @brief Ring buffer which is thread-safe for a single producer and a single consumer.
+ */
+ 
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -8,8 +12,12 @@
 
 #include "util/span.h"
 
-/** @brief Queue which is thread-safe for a single producer and a single consumer.
-  */
+/** 
+ * @brief FIFO queue which is thread-safe for a single producer and a single consumer.
+ *
+ * @tparam T The type of the items in the queue.
+ * @tparam kCapacity The capacity of the queue. (kCapacity + 1) T objects will be allocated.
+ */
 template <typename T, size_t kCapacity>
 class RingBuffer {
 public:

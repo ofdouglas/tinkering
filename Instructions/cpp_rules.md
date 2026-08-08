@@ -96,3 +96,11 @@ using NameString = StaticString<kMaxNameLength>;
      * @note  This file is not intended for use in production code.
      */
 ```           
+
+
+## Unit Tests (Google Test)
+* What to test: A good starting point is: the happy path, expected errors / misuse, edge cases, boundary values, adversarial test inputs.
+* Each TEST / TEST_F / TEST_P should have a brief preceeding comment that explains what it verifies.
+* Helper structs, classes, and free functions can be lightly documented or not documented, and the design tightness / cleanliness standard for them is slightly relaxed. However, the test framework design should still be coherent and concise.
+* Use parameterized tests to avoid repetition when beneficial.
+* Try to avoid very long and dense TEST() definitions.
