@@ -10,7 +10,7 @@ BUILD_DIR ?= $(FIRMWARE_ROOT)/build
 include $(FIRMWARE_ROOT)/mk/gtest.mk
 
 CXX       ?= g++
-CXXFLAGS  ?= -std=c++14 -Wall -Wextra
+CXXFLAGS  ?= -std=c++17 -Wall -Wextra
 INC       := -I$(FIRMWARE_ROOT)
 SIM_ARGS  ?=
 

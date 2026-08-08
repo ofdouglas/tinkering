@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <type_traits>
 
-#include "data_structures/span.h"
+#include "util/span.h"
 
 /** @brief Queue which is thread-safe for a single producer and a single consumer.
   */

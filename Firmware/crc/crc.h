@@ -15,36 +15,37 @@ static constexpr size_t kMaxNameLength = 16U;
 using NameString = StaticString<kMaxNameLength>;
 
 /**
- * @brief Calculate the CRC of a given input data using the bitwise algorithm.
+ * @brief Calculate the CRC of a given input data using the bitwise software algorithm.
  *
- * @tparam Spec  The CRC specification.
- * @param  input The input data to calculate the CRC of.
- * @return The   CRC of the input data.
+ * @tparam    CrcAlgorithm Class type defining a specific CRC algorithm
+ * @param[in] input        The input data to calculate the CRC of.
+ * @return    The CRC of the input data.
  *
  * @todo Handle reflect_in and reflect_out
  * @todo Support incremental processing (update, ... finalize)
  */
- template <typename Derived>
- typename Derived::value_type crcBitwise(Span<const uint8_t> input) {
-    using T = typename Derived::value_type;
+ template <typename CrcAlgorithm>
+ typename CrcAlgorithm::value_type crcBitwise(Span<const uint8_t> input) {
+    using T = typename CrcAlgorithm::value_type;
     static_assert(std::is_integral<T>::value, "T must be an integral type");
     static_assert(std::is_unsigned<T>::value, "T must be an unsigned type");
+    static_assert(!(CrcAlgorithm::reflect_in || CrcAlgorithm::reflect_out), "Reflection not implemented yet");
 
     constexpr T kMsbBit = static_cast<T>((std::numeric_limits<T>::max() >> 1U) + 1U);
-    T result = Derived::initial;
+    T result = CrcAlgorithm::initial;
 
     for (auto x : input) {
         result ^= x;
         for (int i = 0; i < 8; i++) {
             if (result & kMsbBit) {
-                result = (result << 1U) ^ Derived::polynomial;
+                result = (result << 1U) ^ CrcAlgorithm::polynomial;
             } else {
                 result <<= 1U;
             }
         }
     }
 
-    return result ^ Derived::xorOut;
+    return result ^ CrcAlgorithm::xorOut;
 }
 
 /**
