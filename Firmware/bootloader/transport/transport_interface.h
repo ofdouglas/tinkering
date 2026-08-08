@@ -4,18 +4,18 @@
 
 #include "bootloader/protocol.h"
 
-namespace Bootloader {
+namespace bootloader {
 
 class TransportInterface {
 public:
-    using MessageReceivedCallback = std::function<void(const Message& message)>;
-    using SegmentReceivedCallback = std::function<void(const MemTransferSegmentView& segment)>;
+    using CommandReceivedCallback = std::function<void(const CommandPacket& command)>;
+    using SegmentReceivedCallback = std::function<void(const SegmentTransferPacketView& segment)>;
 
     virtual ~TransportInterface() = default;
-    virtual bool sendMessage(const Message& message) noexcept = 0;
+    virtual bool sendCommand(const CommandVariant& command) noexcept = 0;
     virtual void receive() noexcept = 0;
-    virtual bool setMessageReceivedCallback(MessageReceivedCallback callback) noexcept = 0;
+    virtual bool setCommandReceivedCallback(CommandReceivedCallback callback) noexcept = 0;
     virtual bool setSegmentReceivedCallback(SegmentReceivedCallback callback) noexcept = 0;
 };
 
-} // namespace Bootloader
+} // namespace bootloader

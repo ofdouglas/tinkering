@@ -29,4 +29,4 @@ INCLUDES = \
 include sources.cli.mk
 include ../mk/stm32f7.mk
 
-CXXFLAGS := $(subst -std=gnu++11,-std=gnu++14,$(CXXFLAGS))
+CXXFLAGS := $(subst -std=gnu++11,-std=gnu++17,$(CXXFLAGS))

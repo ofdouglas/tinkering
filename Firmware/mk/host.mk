@@ -24,12 +24,16 @@ TEST_BIN = $($(MODULE)_TEST)
 BIN_DIR  = $(BUILD_DIR)/$(MODULE)
 BIN      = $(BIN_DIR)/$(TEST_BIN)
 
+# Header edits must invalidate test binaries (single g++ link line has no -MMD per TU).
+FW_HEADERS := $(shell find $(FIRMWARE_ROOT) -name '*.h' \
+	-not -path '*/build/*' -not -path '*/third_party/*' 2>/dev/null)
+
 .PHONY: require_module_ok build-one test-one gtest
 
 require_module_ok:
 	@$(call require_module)
 
-$(BIN): $(SRCS) $(GTEST_LIB_FILES) | $(BIN_DIR)
+$(BIN): $(SRCS) $(FW_HEADERS) $(GTEST_LIB_FILES) | $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) $(INC) $(GTEST_INC) -o $@ $(SRCS) $(GTEST_LDFLAGS)
 
 $(BIN_DIR):

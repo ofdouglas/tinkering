@@ -4,17 +4,25 @@
 
 namespace py = pybind11;
 
-using Bootloader::AppVersion1;
-using Bootloader::BoardVersion1;
-using Bootloader::BootloaderInfo1;
-using Bootloader::ImageStatus;
-using Bootloader::ImageStatus1;
-using Bootloader::MessageType;
-using Bootloader::TransferType;
-using Bootloader::isValidMessageType;
+using bootloader::AppVersion1;
+using bootloader::BoardVersion1;
+using bootloader::BootloaderInfo1;
+using bootloader::CommandType;
+using bootloader::DataIdentifier;
+using bootloader::ErrorCode;
+using bootloader::ImageStatus;
+using bootloader::ImageStatus1;
+using bootloader::isValidCommandType;
+using bootloader::isValidDataIdentifier;
+using bootloader::isValidErrorCode;
+using bootloader::kProtocolVersion;
 
 PYBIND11_MODULE(protocol, m) {
-    m.def("isValidMessageType", &isValidMessageType, "Check if a MessageType is valid");
+    m.attr("kProtocolVersion") = kProtocolVersion;
+
+    m.def("isValidCommandType", &isValidCommandType, "Check if a CommandType is valid");
+    m.def("isValidDataIdentifier", &isValidDataIdentifier, "Check if a DataIdentifier is valid");
+    m.def("isValidErrorCode", &isValidErrorCode, "Check if an ErrorCode is valid");
 
     py::enum_<ImageStatus>(m, "ImageStatus")
         .value("kUnknown", ImageStatus::kUnknown)
@@ -25,33 +33,49 @@ PYBIND11_MODULE(protocol, m) {
         .value("kValid", ImageStatus::kValid)
         .export_values();
 
-    py::enum_<TransferType>(m, "TransferType")
-        .value("kUnknown", TransferType::kUnknown)
-        .value("kFlashWrite", TransferType::kFlashWrite)
-        .value("kFlashRead", TransferType::kFlashRead)
-        .value("kSramWrite", TransferType::kSramWrite)
-        .value("kSramRead", TransferType::kSramRead)
+    py::enum_<DataIdentifier>(m, "DataIdentifier")
+        .value("kUnknown", DataIdentifier::kUnknown)
+        .value("kBootloaderInfo1", DataIdentifier::kBootloaderInfo1)
+        .value("kImageStatus1", DataIdentifier::kImageStatus1)
+        .value("kBoardVersion1", DataIdentifier::kBoardVersion1)
+        .value("kAppVersion1", DataIdentifier::kAppVersion1)
         .export_values();
 
-    py::enum_<MessageType>(m, "MessageType")
-        .value("kUnknown", MessageType::kUnknown)
-        .value("kCommandAccept", MessageType::kCommandAccept)
-        .value("kCommandReject", MessageType::kCommandReject)
-        .value("kSegmentAck", MessageType::kSegmentAck)
-        .value("kSegmentNak", MessageType::kSegmentNak)
-        .value("kTransferSuccess", MessageType::kTransferSuccess)
-        .value("kTransferFailed", MessageType::kTransferFailed)
-        .value("kBootloaderInfo1", MessageType::kBootloaderInfo1)
-        .value("kImageStatus1", MessageType::kImageStatus1)
-        .value("kBoardVersion1", MessageType::kBoardVersion1)
-        .value("kAppVersion1", MessageType::kAppVersion1)
-        .value("kSetStartAddress", MessageType::kSetStartAddress)
-        .value("kSetSizeBytes", MessageType::kSetSizeBytes)
-        .value("kDoErase", MessageType::kDoErase)
-        .value("kStartTransfer", MessageType::kStartTransfer)
-        .value("kMemTransferSegment", MessageType::kMemTransferSegment)
-        .value("kFinalizeTransfer", MessageType::kFinalizeTransfer)
-        .value("kReset", MessageType::kReset)
+    py::enum_<ErrorCode>(m, "ErrorCode")
+        .value("kUnknown", ErrorCode::kUnknown)
+        .value("kInvalidDataIdentifier", ErrorCode::kInvalidDataIdentifier)
+        .value("kWriteOnlyDataIdentifier", ErrorCode::kWriteOnlyDataIdentifier)
+        .value("kInvalidMemAddress", ErrorCode::kInvalidMemAddress)
+        .value("kInvalidMemSize", ErrorCode::kInvalidMemSize)
+        .value("kWriteFailed", ErrorCode::kWriteFailed)
+        .value("kTransferTimeout", ErrorCode::kTransferTimeout)
+        .value("kNotPrepared", ErrorCode::kNotPrepared)
+        .value("kInvalidImageFormat", ErrorCode::kInvalidImageFormat)
+        .value("kInvalidImageHeaderVersion", ErrorCode::kInvalidImageHeaderVersion)
+        .value("kInvalidBoardType", ErrorCode::kInvalidBoardType)
+        .value("kInvalidBoardVersion", ErrorCode::kInvalidBoardVersion)
+        .value("kInvalidAppVersion", ErrorCode::kInvalidAppVersion)
+        .value("kInvalidImageCrc", ErrorCode::kInvalidImageCrc)
+        .value("kInvalidHeaderCrc", ErrorCode::kInvalidHeaderCrc)
+        .export_values();
+
+    py::enum_<CommandType>(m, "CommandType")
+        .value("kUnknown", CommandType::kUnknown)
+        .value("kReadDataIdentifier", CommandType::kReadDataIdentifier)
+        .value("kWriteDataIdentifier", CommandType::kWriteDataIdentifier)
+        .value("kReset", CommandType::kReset)
+        .value("kBootApplication", CommandType::kBootApplication)
+        .value("kCommandSuccess", CommandType::kCommandSuccess)
+        .value("kCommandPending", CommandType::kCommandPending)
+        .value("kCommandFailed", CommandType::kCommandFailed)
+        .value("kSegmentAck", CommandType::kSegmentAck)
+        .value("kSegmentNak", CommandType::kSegmentNak)
+        .value("kPrepareErase", CommandType::kPrepareErase)
+        .value("kStartErase", CommandType::kStartErase)
+        .value("kPrepareAppDownload", CommandType::kPrepareAppDownload)
+        .value("kStartAppDownload", CommandType::kStartAppDownload)
+        .value("kEndAppDownload", CommandType::kEndAppDownload)
+        .value("kSegmentTransfer", CommandType::kSegmentTransfer)
         .export_values();
 
     py::class_<BootloaderInfo1>(m, "BootloaderInfo1")

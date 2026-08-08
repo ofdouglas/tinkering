@@ -4,21 +4,38 @@
 #include "hal/reset_interface.h"
 #include "interfaces/memory_interface.h"
 
+#include <array>
+#include <variant>
 #include <vector>
 
-namespace Bootloader::test {
+namespace bootloader::test {
 
 class MockTransport : public TransportInterface {
 public:
-    bool sendMessage(const Message& message) noexcept override {
-        sent_messages_.push_back(message);
-        return send_result_;
+    bool sendCommand(const CommandVariant& command) noexcept override {
+        if (std::holds_alternative<GeneralCommand>(command)) {
+            const std::optional<CommandPacket> encoded = std::get<GeneralCommand>(command).encode();
+            if (!encoded) {
+                return false;
+            }
+            sent_commands_.push_back(*encoded);
+            return send_result_;
+        }
+        if (std::holds_alternative<MemoryCommand>(command)) {
+            const std::optional<CommandPacket> encoded = std::get<MemoryCommand>(command).encode();
+            if (!encoded) {
+                return false;
+            }
+            sent_commands_.push_back(*encoded);
+            return send_result_;
+        }
+        return false;
     }
 
     void receive() noexcept override {}
 
-    bool setMessageReceivedCallback(MessageReceivedCallback callback) noexcept override {
-        message_callback_ = callback;
+    bool setCommandReceivedCallback(CommandReceivedCallback callback) noexcept override {
+        command_callback_ = callback;
         return true;
     }
 
@@ -27,15 +44,21 @@ public:
         return true;
     }
 
+    void deliverCommand(const CommandPacket& command) noexcept {
+        if (command_callback_) {
+            command_callback_(command);
+        }
+    }
+
     void setSendResult(bool result) noexcept { send_result_ = result; }
 
-    const std::vector<Message>& sentMessages() const noexcept { return sent_messages_; }
+    const std::vector<CommandPacket>& sentCommands() const noexcept { return sent_commands_; }
 
 private:
     bool send_result_{true};
-    MessageReceivedCallback message_callback_{};
+    CommandReceivedCallback command_callback_{};
     SegmentReceivedCallback segment_callback_{};
-    std::vector<Message> sent_messages_{};
+    std::vector<CommandPacket> sent_commands_{};
 };
 
 class MockReset : public hal::ResetInterface {
@@ -76,4 +99,4 @@ private:
     bool write_result_{true};
 };
 
-} // namespace Bootloader::test
+} // namespace bootloader::test

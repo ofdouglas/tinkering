@@ -19,7 +19,7 @@ class Task50Ms : public bare_metal::PeriodicTask {
     
         void tick() noexcept override {
             std::array<uint8_t, 16U> rx_buffer{};
-            Span<uint8_t> rx_span{rx_buffer};
+            util::Span<uint8_t> rx_span{rx_buffer};
     
             if (bsp_.uartRead(rx_span, 1U)) {
                 if ((rx_span[0] == '\n') || (rx_span[0] == '\r')) {
@@ -48,13 +48,13 @@ class Task50Ms : public bare_metal::PeriodicTask {
     //         std::array<uint8_t, 1U> rx_buffer{};
     //         std::array<uint8_t, kPayloadBufferSize> rx_message{};
     
-    //         while (bsp_.uartRead(Span<uint8_t>{rx_buffer}, 1U)) {
+    //         while (bsp_.uartRead(util::Span<uint8_t>{rx_buffer}, 1U)) {
     //             LOG_INFO() << "Rx byte: " << rx_buffer[0];
     
-    //             Span<const uint8_t> rx{rx_buffer.data(), 1U};
+    //             util::Span<const uint8_t> rx{rx_buffer.data(), 1U};
     //             bool msg_ready = receiver_.process(rx);
     //             if (msg_ready) {
-    //                 size_t msg_size = receiver_.receivePayload(Span<uint8_t>{rx_message});
+    //                 size_t msg_size = receiver_.receivePayload(util::Span<uint8_t>{rx_message});
     //                 LOG_INFO() << "Received " << msg_size << " bytes: " << rx_message[0];
     //             }
     //         }

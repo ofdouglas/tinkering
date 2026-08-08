@@ -14,7 +14,7 @@
 
 #include "hal/clock.h"
 #include "hal/delay.h"
-#include "logging/log.hpp"
+#include "logging/logging.h"
 #include "data_structures/ring_buffer.h"
 #include "hdlc/hdlc.h"
 #include "hdlc/protocol.h"
@@ -27,7 +27,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 constexpr size_t kUartRxRingCapacity{256U};
-constexpr size_t kHdlcPayloadBufferSize{Bootloader::kHdlcMaxPayloadBytes};
 
 uint8_t uart_rx_char{};
 uint32_t uart_isr_count{};
@@ -55,11 +54,11 @@ public:
     explicit UartHdlcStream(UART_HandleTypeDef& uart, RingBuffer<uint8_t, kUartRxRingCapacity>& ring_buffer) noexcept
         : uart_(uart), ring_buffer_(ring_buffer) {}
 
-    size_t read(Span<uint8_t> data) noexcept override {
+    size_t read(util::Span<uint8_t> data) noexcept override {
         return ring_buffer_.dequeue(data);
     }
     
-    size_t write(Span<const uint8_t> data) noexcept override {
+    size_t write(util::Span<const uint8_t> data) noexcept override {
         return HAL_UART_Transmit(&uart_, const_cast<uint8_t*>(data.data()), data.size(), 100U) == HAL_OK;
     }
 
@@ -69,8 +68,8 @@ private:
 };
 
 UartHdlcStream uart_hdlc_stream{bsp.huart1, ring_buffer};
-Bootloader::HdlcTransport<kHdlcPayloadBufferSize> hdlc_transport{uart_hdlc_stream};
-Bootloader::Bootloader bootloader{bsp.memory_regions, hdlc_transport, bsp.system_reset};
+bootloader::HdlcTransport<> hdlc_transport{uart_hdlc_stream};
+bootloader::Bootloader bootloader_app{bsp.memory_regions, hdlc_transport, bsp.system_reset};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Main function
@@ -86,10 +85,10 @@ int main(void) {
     HAL_UART_Receive_IT(&bsp.huart1, &uart_rx_char, 1U);
 
 
-    bootloader.initialize();
+    bootloader_app.initialize();
     LOG_INFO() << "Bootloader started.";
 
-    if (bootloader.validateApplication()) {
+    if (bootloader_app.validateApplication()) {
         LOG_INFO() << "Bootable application found";
     } else {
         LOG_INFO() << "No bootable application found";
@@ -97,7 +96,7 @@ int main(void) {
 
     while (true) {
         // tick() will eventually load the app if it is valid
-        if (bootloader.tick() == Bootloader::Bootloader::State::kFault) {
+        if (bootloader_app.tick() == bootloader::Bootloader::State::kFault) {
             LOG_FATAL() << "Bootloader fault";
             return 2;
         }

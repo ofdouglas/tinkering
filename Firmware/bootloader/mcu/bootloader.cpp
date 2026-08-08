@@ -1,21 +1,29 @@
 
-#include "bootloader/mcu/bootloader.h"
+#include <cstdint>
+#include <limits>
 
+#include "bootloader/mcu/bootloader.h"
+#include "bootloader/data_identifiers.h"
 #include "bootloader/image_header.h"
 
 #include "hal/clock.h"
 #include "hal/delay.h"
+#include "logging/logging.h"
 
-#include "logging/log.hpp"
+namespace bootloader {
 
-#include <limits.h>
+using data_id::AppVersion1;
+using data_id::BoardVersion1;
+using data_id::BootloaderInfo1;
+using data_id::DataIdentifier;
+using data_id::ImageStatus1;
+using data_id::isValidDataIdentifier;
 
-namespace Bootloader {
-
-Bootloader::Bootloader(Span<const Memory::Region> regions, TransportInterface& transport, hal::ResetInterface& reset) noexcept :
-    regions_(regions),
-    transport_(transport),
-    reset_(reset) {}
+Bootloader::Bootloader(util::Span<const Memory::Region> regions, TransportInterface& transport,
+                       hal::ResetInterface& reset) noexcept
+    : regions_(regions),
+      transport_(transport),
+      reset_(reset) {}
 
 
 // TODO: validate full application header
@@ -51,19 +59,44 @@ bool Bootloader::validateTransfer() const noexcept {
         return false;
     }
 
+    if (prepared_.active_region == nullptr) {
+        return false;
+    }
+
     const ImageHeader_Application_v1* image_header =
-        reinterpret_cast<const ImageHeader_Application_v1*>(job_context_.active_region->start_address);
+        reinterpret_cast<const ImageHeader_Application_v1*>(prepared_.active_region->start_address);
 
     return isValidApplication(*image_header);
 }
 
-bool Bootloader::sendMessage(MessageType message_type, uint8_t job_id, uint32_t value32, uint8_t value8) noexcept {
-    Message message{};
-    message.message_type = static_cast<uint8_t>(message_type);
-    message.job_id = job_id;
-    message.value32 = value32;
-    message.value8 = value8;
-    return transport_.sendMessage(message);
+bool Bootloader::sendGeneralCommand(CommandType command_type, uint16_t value16, uint32_t value32) noexcept {
+    const GeneralCommand command{
+        .command_type = command_type,
+        .value16 = value16,
+        .value32 = value32,
+    };
+    if (!command.isValid()) {
+        LOG_ERROR() << "Failed to encode general command: " << static_cast<uint8_t>(command_type);
+        return false;
+    }
+
+    return transport_.sendCommand(CommandVariant{command});
+}
+
+void Bootloader::sendCommandSuccess(CommandType original_command) noexcept {
+    sendGeneralCommand(CommandType::kCommandSuccess, static_cast<uint16_t>(original_command), 0U);
+}
+
+void Bootloader::sendCommandFailed(CommandType original_command, ErrorCode error_code) noexcept {
+    sendGeneralCommand(CommandType::kCommandFailed, static_cast<uint16_t>(original_command), static_cast<uint32_t>(error_code));
+}
+
+void Bootloader::sendSegmentAck(uint32_t segment_number) noexcept {
+    sendGeneralCommand(CommandType::kSegmentAck, 0U, segment_number);
+}
+
+void Bootloader::sendSegmentNak(uint32_t segment_number) noexcept {
+    sendGeneralCommand(CommandType::kSegmentNak, 0U, segment_number);
 }
 
 bool Bootloader::bootApplication() noexcept {
@@ -87,10 +120,10 @@ bool Bootloader::bootApplication() noexcept {
  ******************************************************************************/
 
  bool Bootloader::initialize() noexcept {
-    transport_.setMessageReceivedCallback([this](const Message& message) {
-        handleMessage(message);
+    transport_.setCommandReceivedCallback([this](const CommandPacket& command) {
+        handleCommand(command);
     });
-    transport_.setSegmentReceivedCallback([this](const MemTransferSegmentView& segment) {
+    transport_.setSegmentReceivedCallback([this](const SegmentTransferPacketView& segment) {
         handleSegment(segment);
     });
 
@@ -133,196 +166,241 @@ Bootloader::State Bootloader::tick() noexcept {
 
 
 /******************************************************************************
- *  Message Dispatch
+ *  Command Dispatch
  ******************************************************************************/
 
-void Bootloader::acceptCommand(const Message& message) noexcept {
-    sendMessage(MessageType::kCommandAccept, message.job_id, 0U, message.message_type);
-}
+void Bootloader::handleCommand(const CommandPacket& packet) noexcept {
+    last_rx_time_ = hal::PlatformClock::now();
 
-void Bootloader::rejectCommand(const Message& message) noexcept {
-    sendMessage(MessageType::kCommandReject, message.job_id, 0U, message.message_type);
-}
+    const std::optional<CommandVariant> decoded = decodeCommand(packet);
+    if (!decoded.has_value()) {
+        LOG_ERROR() << "Invalid command";
+        return;
+    }
 
-void Bootloader::handleJobId(const Message& message) noexcept {
-    if (job_context_.job_id != message.job_id) {
-        job_context_.create(message.job_id);
-        LOG_INFO() << "New job accepted: " << message.job_id;
-        state_ = State::kJobSetup;
+    if (std::holds_alternative<GeneralCommand>(decoded.value())) {
+        handleGeneralCommand(std::get<GeneralCommand>(decoded.value()));
+    } else if (std::holds_alternative<MemoryCommand>(decoded.value())) {
+        handleMemoryCommand(std::get<MemoryCommand>(decoded.value()));
     }
 }
 
-void Bootloader::handleMessage(const Message& message) noexcept {
-    last_rx_time_ = hal::PlatformClock::now();
-    handleJobId(message);
-
-    switch (static_cast<MessageType>(message.message_type)) {
-        case MessageType::kBootloaderInfo1:
-            handleBootloaderInfo1(message);
+void Bootloader::handleGeneralCommand(const GeneralCommand& command) noexcept {
+    switch (command.command_type) {
+        case CommandType::kReadDataIdentifier:
+            handleReadDataIdentifier(command.value16);
             break;
-        case MessageType::kImageStatus1:
-            handleImageStatus1(message);
+        case CommandType::kWriteDataIdentifier:
+            handleWriteDataIdentifier(command.value16, command.value32);
             break;
-        case MessageType::kBoardVersion1:
-            handleBoardVersion1(message);
+        case CommandType::kReset:
+            handleReset();
             break;
-        case MessageType::kAppVersion1:
-            handleAppVersion1(message);
+        case CommandType::kBootApplication:
+            if (bootApplication()) {
+                // TODO: if we want to send a response, we need to set a "boot on next tick() flag"
+                // currently, this code will not be reached if the app image is valid
+                sendCommandSuccess(CommandType::kBootApplication);
+            } else {
+                sendCommandFailed(CommandType::kBootApplication, ErrorCode::kInvalidImageFormat);
+            }
             break;
-        case MessageType::kSetStartAddress:
-            handleSetStartAddress(message);
+        case CommandType::kCommandSuccess:
+        case CommandType::kCommandPending:
+        case CommandType::kCommandFailed:
+        case CommandType::kSegmentAck:
+        case CommandType::kSegmentNak:
+            LOG_ERROR() << "Unexpected command type from host: " << static_cast<uint8_t>(command.command_type);
             break;
-        case MessageType::kSetSizeBytes:
-            handleSetSizeBytes(message);
-            break;
-        case MessageType::kDoErase:
-            handleDoErase(message);
-            break;
-        case MessageType::kStartTransfer:
-            handleStartTransfer(message);
-            break;
-        case MessageType::kMemTransferSegment:
-            handleMemTransferSegment(message);
-            break;
-        case MessageType::kFinalizeTransfer:
-            handleFinalizeTransfer(message);
-            break;
-        case MessageType::kReset:
-            handleReset(message);
-            break;
-        case MessageType::kCommandAccept:
-        case MessageType::kCommandReject:
-        case MessageType::kSegmentAck:
-        case MessageType::kSegmentNak:
-        case MessageType::kTransferSuccess:
-        case MessageType::kTransferFailed:
-            LOG_ERROR() << "Unexpected message type: " << message.message_type;
+        case CommandType::kSegmentTransfer:
+            LOG_ERROR() << "Segment transfer received as command frame; expected segment frame";
             break;
         default:
-            LOG_ERROR() << "Unknown message type: " << message.message_type;
+            LOG_ERROR() << "Unknown command type: " << static_cast<uint8_t>(command.command_type);
             break;
     }
 }
 
+void Bootloader::handleMemoryCommand(const MemoryCommand& command) noexcept {
+    switch (command.command_type) {
+        case CommandType::kPrepareErase:
+        case CommandType::kPrepareAppDownload:
+            handlePrepareMemory(command);
+            break;
+        case CommandType::kStartErase:
+            handleStartErase(command);
+            break;
+        case CommandType::kStartAppDownload:
+            handleStartAppDownload(command);
+            break;
+        case CommandType::kEndAppDownload:
+            handleEndAppDownload();
+            break;
+        default:
+            sendCommandFailed(command.command_type, ErrorCode::kUnknown);
+            break;
+    }
+}
+
+
 /******************************************************************************
- *  Information Messages
+ *  Data Identifiers
  ******************************************************************************/
 
 // TODO: get bootloader info
-void Bootloader::handleBootloaderInfo1(const Message& message) noexcept {
-    const BootloaderInfo1 bootloader_info = {
-        .magic = BootloaderInfo1::kMagic,
-        .protocol_version = 1,
-        .bootloader_major = 1,
-        .bootloader_minor = 0,
-    };
+void Bootloader::handleReadDataIdentifier(uint16_t data_identifier) noexcept {
+    const auto did = static_cast<DataIdentifier>(data_identifier);
+    if (!isValidDataIdentifier(did)) {
+        sendCommandFailed(CommandType::kReadDataIdentifier, ErrorCode::kInvalidDataIdentifier);
+        return;
+    }
 
-    const uint32_t bootloader_info_value = *reinterpret_cast<const uint32_t*>(&bootloader_info);
-    sendMessage(MessageType::kBootloaderInfo1, message.job_id, bootloader_info_value);
+    uint32_t value32{0U};
+    switch (did) {
+        case DataIdentifier::kBootloaderInfo1: {
+            const BootloaderInfo1 bootloader_info = {
+                .magic = BootloaderInfo1::kMagic,
+                .protocol_version = kProtocolVersion,
+                .bootloader_major = 1,
+                .bootloader_minor = 0,
+            };
+            value32 = *reinterpret_cast<const uint32_t*>(&bootloader_info);
+            break;
+        }
+        // TODO: get image status
+        case DataIdentifier::kImageStatus1: {
+            const ImageStatus1 image_status = {
+                .status_a = static_cast<uint8_t>(ImageStatus::kUnknown),
+                .status_b = static_cast<uint8_t>(ImageStatus::kNotSupported),
+            };
+            value32 = *reinterpret_cast<const uint32_t*>(&image_status);
+            break;
+        }
+        // TODO: get board version
+        case DataIdentifier::kBoardVersion1: {
+            const BoardVersion1 board_version = {
+                .board_type = 1, // TODO
+                .board_version_major = 1,
+                .board_version_minor = 0,
+            };
+            value32 = *reinterpret_cast<const uint32_t*>(&board_version);
+            break;
+        }
+        // TODO: get app version
+        case DataIdentifier::kAppVersion1: {
+            const AppVersion1 app_version = {
+                .app_version_major = 1,
+                .app_version_minor = 0,
+            };
+            value32 = *reinterpret_cast<const uint32_t*>(&app_version);
+            break;
+        }
+        default:
+            sendCommandFailed(CommandType::kReadDataIdentifier, ErrorCode::kInvalidDataIdentifier);
+            return;
+    }
+
+    sendGeneralCommand(CommandType::kReadDataIdentifier, data_identifier, value32);
 }
 
-// TODO: get image status
-void Bootloader::handleImageStatus1(const Message& message) noexcept {
-    const ImageStatus1 image_status = {
-        .status_a = static_cast<uint8_t>(ImageStatus::kUnknown),
-        .status_b = static_cast<uint8_t>(ImageStatus::kNotSupported),
-    };
+void Bootloader::handleWriteDataIdentifier(uint16_t data_identifier, uint32_t value) noexcept {
+    (void)value;
+    const auto did = static_cast<DataIdentifier>(data_identifier);
+    if (!isValidDataIdentifier(did)) {
+        sendCommandFailed(CommandType::kWriteDataIdentifier, ErrorCode::kInvalidDataIdentifier);
+        return;
+    }
 
-    const uint32_t image_status_value = *reinterpret_cast<const uint32_t*>(&image_status);
-    sendMessage(MessageType::kImageStatus1, message.job_id, image_status_value);
+    // All current identifiers are read-only on the device.
+    sendCommandFailed(CommandType::kWriteDataIdentifier, ErrorCode::kWriteOnlyDataIdentifier);
 }
-
-// TODO: get board version
-void Bootloader::handleBoardVersion1(const Message& message) noexcept {
-    const BoardVersion1 board_version = {
-        .board_type = 1, // TODO
-        .board_version_major = 1,
-        .board_version_minor = 0,
-    };
-
-    const uint32_t board_version_value = *reinterpret_cast<const uint32_t*>(&board_version);
-    sendMessage(MessageType::kBoardVersion1, message.job_id, board_version_value);
-}
-
-// TODO: get app version
-void Bootloader::handleAppVersion1(const Message& message) noexcept {
-    const AppVersion1 app_version = {
-        .app_version_major = 1,
-        .app_version_minor = 0,
-    };
-
-    const uint32_t app_version_value = *reinterpret_cast<const uint32_t*>(&app_version);
-    sendMessage(MessageType::kAppVersion1, message.job_id, app_version_value);
-}
-
 
 /******************************************************************************
- *  Job Setup Messages
+ *  Memory Commands
  ******************************************************************************/
 
-void Bootloader::handleSetStartAddress(const Message& message) noexcept {
-    job_context_.start_address = message.value32;
+// TODO: handle start addresses that aren't at the start of a region
+void Bootloader::handlePrepareMemory(const MemoryCommand& command) noexcept {
+    const uint32_t start_address = command.start_word * 4U;
+    const uint32_t size_bytes = command.size_words.value * 4U;
 
-    job_context_.active_region = regionFromAddress(job_context_.start_address);
-    if (job_context_.active_region == nullptr) {
-        rejectCommand(message);
-        LOG_ERROR() << "No memory interface found for start address: " << job_context_.start_address;
+    prepared_.clear();
+    prepared_.command_type = command.command_type;
+    prepared_.start_word = command.start_word;
+    prepared_.size_words = command.size_words.value;
+    prepared_.active_region = regionFromAddress(start_address);
+
+    if (prepared_.active_region == nullptr) {
+        sendCommandFailed(command.command_type, ErrorCode::kInvalidMemAddress);
+        prepared_.clear();
+        LOG_ERROR() << "No memory interface found for start address: " << start_address;
         return;
     }
 
-    acceptCommand(message);
+    if (!Memory::isWithinRegion(start_address, size_bytes, *prepared_.active_region)) {
+        sendCommandFailed(command.command_type, ErrorCode::kInvalidMemSize);
+        prepared_.clear();
+        return;
+    }
+
+    state_ = State::kPrepared;
+    sendCommandSuccess(command.command_type);
 }
 
-void Bootloader::handleSetSizeBytes(const Message& message) noexcept {
-    job_context_.size_bytes = message.value32;
-    acceptCommand(message);
-}
+void Bootloader::handleStartErase(const MemoryCommand& command) noexcept {
+    if ((state_ != State::kPrepared) || !prepared_.isValid() || !prepared_.matches(command)) {
+        sendCommandFailed(command.command_type, ErrorCode::kNotPrepared);
+        return;
+    }
 
-void Bootloader::handleDoErase(const Message& message) noexcept {
+    if (prepared_.command_type != CommandType::kPrepareErase) {
+        sendCommandFailed(command.command_type, ErrorCode::kNotPrepared);
+        return;
+    }
+
     LOG_ERROR() << "Do erase not implemented yet";
-    rejectCommand(message);
+    sendCommandFailed(command.command_type, ErrorCode::kUnknown);
 }
 
-// TODO: check transfer type
-void Bootloader::handleStartTransfer(const Message& message) noexcept {
-    if (!job_context_.isValid() || (state_ != State::kJobSetup)) {
-        rejectCommand(message);
+void Bootloader::handleStartAppDownload(const MemoryCommand& command) noexcept {
+    if ((state_ != State::kPrepared) || !prepared_.isValid() || !prepared_.matches(command)) {
+        sendCommandFailed(command.command_type, ErrorCode::kNotPrepared);
         return;
     }
 
+    if (prepared_.command_type != CommandType::kPrepareAppDownload) {
+        sendCommandFailed(command.command_type, ErrorCode::kNotPrepared);
+        return;
+    }
+
+    // TODO: check transfer type
     state_ = State::kTransfer;
-    job_context_.segment_number = 0U;
-    acceptCommand(message);
+    sendCommandSuccess(command.command_type);
 }
 
-void Bootloader::handleMemTransferSegment(const Message& message) noexcept {
-    (void)message;
-    LOG_ERROR() << "Mem transfer segment received as message; expected segment frame";
-}
-
-void Bootloader::handleFinalizeTransfer(const Message& message) noexcept {
+void Bootloader::handleEndAppDownload() noexcept {
     if (state_ != State::kTransfer) {
-        rejectCommand(message);
+        sendCommandFailed(CommandType::kEndAppDownload, ErrorCode::kNotPrepared);
         LOG_ERROR() << "Not in transfer state";
         return;
     }
-
-    acceptCommand(message);
-
+    
+    sendGeneralCommand(CommandType::kCommandPending, static_cast<uint16_t>(CommandType::kEndAppDownload), 0U);
     if (validateTransfer()) {
-        sendMessage(MessageType::kTransferSuccess, job_context_.job_id);
-        LOG_INFO() << "Transfer successful: "; // TODO: << job_context_;
+        sendCommandSuccess(CommandType::kEndAppDownload);
+        LOG_INFO() << "Transfer successful: "; // TODO: << prepared_;
     } else {
-        sendMessage(MessageType::kTransferFailed, job_context_.job_id);
-        LOG_ERROR() << "Transfer failed: "; // TODO: << job_context_;
+        // TODO: handle other image verification failure types
+        sendCommandFailed(CommandType::kEndAppDownload, ErrorCode::kInvalidImageCrc);
+        LOG_ERROR() << "Transfer failed: "; // TODO: << prepared_;
     }
 
     state_ = State::kIdle;
-    job_context_.create(Message::kInvalidJobId);
+    prepared_.clear();
 }
 
-void Bootloader::handleReset(const Message& message) noexcept {
-    acceptCommand(message);
+void Bootloader::handleReset() noexcept {
+    sendCommandSuccess(CommandType::kReset);
     hal::delayFor<hal::PlatformClock>(std::chrono::milliseconds(15U));
     reset_.reset();
 }
@@ -342,45 +420,57 @@ const Memory::Region* Bootloader::regionFromAddress(uint32_t address) const noex
     return nullptr;
 }
 
-// TODO: handle segment wrapping
-void Bootloader::handleSegment(const MemTransferSegmentView& segment) noexcept {
-    auto nakSegment = [this, &segment]() {
-        sendMessage(MessageType::kSegmentNak, segment.job_id, segment.segment_number);
-    };
-
+std::optional<ErrorCode> Bootloader::isReadyForSegment() const noexcept {
     if (state_ != State::kTransfer) {
-        nakSegment();
-        LOG_ERROR() << "Not in transfer state";
-        return;
+        return ErrorCode::kNotInTransferState;
     }
-
-    if (segment.job_id != job_context_.job_id) {
-        nakSegment();
-        LOG_ERROR() << "Job ID mismatch: got " << segment.job_id << ", expected " << job_context_.job_id;
-        return;
+    if (prepared_.active_region == nullptr) {
+        return ErrorCode::kNoActiveRegion;
     }
-
-    if ((job_context_.active_region == nullptr) || (job_context_.active_region->interface == nullptr)) {
-        nakSegment();
-        LOG_ERROR() << "No active region";
-        return;
-    }
-
-    const uint32_t write_address = job_context_.start_address + static_cast<uint32_t>(segment.segment_number) *
-        static_cast<uint32_t>(segment.data.size());
-    if (!Memory::isWithinRegion(write_address, segment.data.size(), *job_context_.active_region)) {
-        nakSegment();
-        return;
-    }
-
-    if (job_context_.active_region->interface->write(write_address, segment.data.data(), segment.data.size())) {
-        sendMessage(MessageType::kSegmentAck, segment.job_id, segment.segment_number);
-        job_context_.segment_number = static_cast<uint16_t>(segment.segment_number + 1U);
-        return;
-    }
-
-    nakSegment();
-    LOG_ERROR() << "Failed to write segment to active region";
+    return std::nullopt;
 }
 
-} // namespace Bootloader
+// TODO: Consider changing the memory interface to word-oriented
+bool Bootloader::writeSegment(const SegmentTransferCommandWord& command_word, util::Span<const uint32_t> memory_words) noexcept {
+    const uint32_t segment_bytes = static_cast<uint32_t>(memory_words.size() * 4U);
+    const uint32_t start_address = prepared_.start_word * 4U;
+
+    const uint32_t write_address = start_address + (command_word.segment_number.value * segment_bytes);
+    if (!Memory::isWithinRegion(write_address, segment_bytes, *prepared_.active_region)) {
+        return false;
+    }
+
+    const uint8_t* byte_data = reinterpret_cast<const uint8_t*>(memory_words.data());
+    return prepared_.active_region->interface->write(write_address, byte_data, segment_bytes);
+}
+
+// TODO: handle segment wrapping
+void Bootloader::handleSegment(const SegmentTransferPacketView& segment) noexcept {
+    last_rx_time_ = hal::PlatformClock::now();
+
+    const std::optional<ErrorCode> ready_for_segment = isReadyForSegment();
+    const std::optional<SegmentTransferCommandWord> command_word = SegmentTransferPacketView::decodeCommandWord(segment.command_word);
+
+    if (!command_word.has_value()) {
+        const util::Uint24_s segment_number{.value = segment.command_word & util::Uint24_s::kMask};
+        sendSegmentNak(segment_number.value);
+        LOG_ERROR() << "Invalid segment command word";
+        return;
+    }
+
+    if (ready_for_segment.has_value()) {
+        sendSegmentNak(command_word.value().segment_number.value);
+        LOG_ERROR() << "Not ready for segment: " << static_cast<uint32_t>(ready_for_segment.value());
+        return;
+    }
+
+    if (!writeSegment(command_word.value(), segment.memory_words)) {
+        sendSegmentNak(command_word.value().segment_number.value);
+        LOG_ERROR() << "Failed to write segment";
+        return;
+    }
+
+    sendSegmentAck(command_word.value().segment_number.value);
+}
+
+} // namespace bootloader

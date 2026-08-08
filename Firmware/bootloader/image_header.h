@@ -8,7 +8,7 @@
  *   - All multi-byte fields are little-endian.
  *   - All CRCs are CRC-32/ISO-HDLC unless otherwise specified.
  */
-namespace Bootloader {
+namespace bootloader {
 
 /******************************************************************************
  *  Common Types
@@ -103,4 +103,4 @@ struct ImageHeader_DataFile_v1 {
 static_assert(sizeof(ImageHeader_DataFile_v1) == 24U, "ImageHeader_DataFile_v1 size is incorrect");
 
 
-} // namespace Bootloader
+} // namespace bootloader

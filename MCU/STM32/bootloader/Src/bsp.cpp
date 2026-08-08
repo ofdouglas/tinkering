@@ -26,7 +26,7 @@ Bsp::UartLogSink::UartLogSink(UART_HandleTypeDef &huart)
 Bsp::UartLogSink::~UartLogSink() {}
 
 // TODO: buffer any writes which occur before the UART is initialized
-bool Bsp::UartLogSink::write(Span<const uint8_t> message) {
+bool Bsp::UartLogSink::write(util::Span<const uint8_t> message) {
     return HAL_UART_Transmit(&huart_, const_cast<uint8_t*>(message.data()), static_cast<uint16_t>(message.size()), 1000) == HAL_OK;
 }
 

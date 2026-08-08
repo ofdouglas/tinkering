@@ -13,10 +13,10 @@
 #include "stm32f7xx_hal_gpio.h"
 
 #include "bsp/base_bsp.h"
-#include "logging/log.hpp"
+#include "logging/logging.h"
 #include "hal/reset_interface.h"
 #include "interfaces/memory_interface.h"
-#include "data_structures/span.h"
+#include "util/span.h"
 
 #include <array>
 
@@ -59,7 +59,7 @@ public:
     std::array<Memory::Region, 1U> memory_region_table_{{
         {_APP_FLASH_START, _APP_FLASH_SIZE, kAppRegionAttributes, nullptr}
     }};
-    Span<const Memory::Region> memory_regions{
+    util::Span<const Memory::Region> memory_regions{
         memory_region_table_.data(),
         memory_region_table_.size()
     };
@@ -78,7 +78,7 @@ private:
     public:
         explicit UartLogSink(UART_HandleTypeDef &huart);
         ~UartLogSink() override;
-        bool write(Span<const uint8_t> message) override;
+        bool write(util::Span<const uint8_t> message) override;
     private:
         UART_HandleTypeDef &huart_;
     };

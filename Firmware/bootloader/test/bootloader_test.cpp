@@ -11,10 +11,10 @@
 #include <sys/mman.h>
 #endif
 
-using Bootloader::BoardType;
-using Bootloader::HeaderStart;
-using Bootloader::ImageHeader_Application_v1;
-using Bootloader::ImageType;
+using bootloader::BoardType;
+using bootloader::HeaderStart;
+using bootloader::ImageHeader_Application_v1;
+using bootloader::ImageType;
 
 namespace {
 
@@ -59,8 +59,8 @@ TEST(BootloaderMcu, ValidateApplicationAcceptsValidHeader) {
     ASSERT_NE(mapped, MAP_FAILED) << "mmap at app flash base failed";
     memcpy(mapped, &header, map_size);
 
-    Bootloader::test::MockTransport transport;
-    Bootloader::test::MockReset reset;
+    bootloader::test::MockTransport transport;
+    bootloader::test::MockReset reset;
 
     const Memory::Region region{
         kAppFlashBase,
@@ -71,8 +71,8 @@ TEST(BootloaderMcu, ValidateApplicationAcceptsValidHeader) {
     };
 
     std::array<Memory::Region, 1U> regions{region};
-    Bootloader::Bootloader bootloader{
-        Span<const Memory::Region>(regions.data(), regions.size()),
+    bootloader::Bootloader bootloader{
+        util::Span<const Memory::Region>(regions.data(), regions.size()),
         transport,
         reset,
     };
