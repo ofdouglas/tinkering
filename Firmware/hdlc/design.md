@@ -23,8 +23,8 @@ The initial use cases are the `BootloaderCommand` and `BootloaderSegment` Servic
 |------------------- |-------------------------------|---------------------------------------|
 | Application        | Service                       | e.g. BootloaderCmd, Telemetry         |
 | Transport          | Reliable delivery             | Not present, or provided by Service   |
-| Network            | src, dest addresses           | Optional L.L. layer extension         |
-| Logical Link Layer | Service Dispatch              | via 8-bit Service ID                  |
+| Logical Link Layer | Optional link addressing      | Via a future header extension         |
+|                    | Service Dispatch              | via 8-bit Service ID                  |
 |                    | Flow control                  | log2 of available RX size in each frame | 
 |                    | HDLC Framing + CRC-16         | CRC-16/CCITT-FALSE                    |
 | Physical           | UART or other byte-stream transport  | Not specified by this protocol        |
@@ -39,7 +39,7 @@ flowchart TB
     SVC[User Services e.g. Bootloader]
     NM[Network Management Service]
   end
-  subgraph te [Transport Entity]
+  subgraph te [Link Entity]
     DISPATCH[Dispatch by service_type]
     LINK[Link PDU: CRC, header, extensions]
     STUFF[HDLC byte stuffing]
@@ -56,6 +56,8 @@ Frames on the wire are delimited by the flag byte `0x7E`. Between flags, any occ
 
 This document does not restate the full standard; treat the above as the profile used by this stack. The protocol specifies a maximum **decoded** frame size only (see below), not a maximum stuffed size on the wire. In the worst case, stuffing can approach ~2× the decoded length (every data byte escaped).
 
+If more than `MAX_PROTOCOL_FRAME_SIZE` decoded bytes are observed before the closing flag, the receiver shall discard the oversized frame and continue discarding until the next flag. The condition is reported locally as an oversized-frame error.
+
 ## Frame Format
 
 After HDLC decoding/unescaping, a frame has the following logical format:
@@ -70,14 +72,14 @@ After HDLC decoding/unescaping, a frame has the following logical format:
 ```
 
 * Little-endian encoding is used for all multi-byte fields
-* The maximum decoded frame size (including CRC) is set to 4095 bytes because the CRC protection is good for <= 4093 CRC-covered bytes.
-* The hypothetical 4095-byte frame is divided up into the *protocol legal size limits*:
+* `MAX_PROTOCOL_FRAME_SIZE` is 4095 decoded bytes including CRC. This keeps the CRC-covered portion at <= 4093 bytes, preserving the selected minimum Hamming-distance guarantee of CRC-16/CCITT-FALSE.
+* A maximum-size legal frame is divided into:
   - Fixed (CRC + FrameControl)    =    4 bytes
   - N (size of `Extensions`)     <=   40 bytes
   - M (size of `ServicePayload`) <= 4051 bytes
-* The actual maximum size limits that are guaranteed to be supported by all hosts are:
+* Implementations are not required to buffer the protocol maximum. All compliant hosts shall support at least `MIN_REQUIRED_PAYLOAD_CAPACITY` bytes of Service Payload:
   - N (size of `Extensions`)     >=     0 bytes (hosts don't need to support any extensions)
-  - M (size of `ServicePayload`) >=   TBD bytes
+  - `MIN_REQUIRED_PAYLOAD_CAPACITY` = TBD bytes
     - TBD: The purpose of a guaranteed minimum is so we can define good default buffer sizes that work with most services and have affordable RAM footprint on MCUs. We are only targetting 32-bit MCUs and assume RAM is not ultra-constrained (probably at least 32 kB total, usually much more?)
     - TBD: Initial guess is somewhere in the range of [100, 512] might be good
 * Services typically (but not necessarily) expect a fixed, non-zero Service Payload length.
@@ -119,7 +121,7 @@ Flow control using the 4-bit log2 value will be designed and added later in the 
 
 ## Header Extensions
 
-Optional header fields immediately follow the fixed base header. The `extensions` field indicates which extensions are present. `extensions == 0` represents the base frame format and incurs no extension overhead. Each extension that is present is indicated by a single bit. The size of a particular extension is a fixed value. The only constraint on the size of extensions is that a frame with all extension bits set must contain a maximum of 40 extension bytes. 
+Optional header fields immediately follow the fixed base header. The `extensions` field indicates which extensions are present. `extensions == 0` represents the base frame format and incurs no extension overhead. Each extension that is present is indicated by a single bit. The size of a particular extension is a fixed value. The sum of the sizes of all defined extensions shall not exceed 40 bytes. 
 
 This 40 byte limit is arbitrary and could be revised before the design is frozen. The rationale for choosing it is that we want to set a maximum size for the frame based on the CRC performance, and 40 is both 1) an insignificant percentage of the available frame space, and 2) very large relative to the types of extensions that are likely to be added. For example, the addressing header extension shown below would only need 4 bytes.
 
@@ -187,15 +189,15 @@ Each frame’s `service_type` is an 8-bit ID in **`[1, 255]`**. **`0` is forbidd
 
 **Project (ephemeral)** IDs occupy **`0xE0`–`0xFF` (32 IDs)** — the highest values. Use them for temporary services during development. They are not reserved, may collide across branches or developers, and must not be documented as release interfaces. When a service outgrows MVP, assign a new ID in the stable band and stop using the ephemeral ID (update host tools and firmware; the old ID may be left unhandled or rejected).
 
-Receivers may use `id >> 4` for coarse policy (e.g. reject reserved range until assigned). Unknown IDs in an otherwise valid category are reported via Network Management (`Unsupported service type`) when NM is implemented.
+Unknown or unsupported IDs are reported via Network Management (`Unsupported service type`).
 
 #### Intrinsic service registry
 
-Provided by the protocol implementation. Additional intrinsic services are expected to be **optional** at compile or run time.
+Provided by the protocol implementation. `NetworkManagement` is mandatory; additional intrinsic services are expected to be **optional** at compile or run time.
 
 | ID (dec) | ID (hex) | Name                | Purpose                                      |
 |----------|----------|---------------------|----------------------------------------------|
-| 1        | `0x01`   | NetworkManagement   | Protocol errors, capabilities, link health   |
+| 1        | `0x01`   | NetworkManagement   | Mandatory protocol error reporting           |
 | 2–15     | `0x02`–`0x0F` | —            | Reserved                                     |
 
 #### Common service registry
@@ -223,7 +225,7 @@ Future spec revisions may enlarge the stable band downward into **`0x30`–`0x9F
 
 ## Network Management Service
 
-Network Management (NM) is a normal **Service** (`service_type` reserved for protocol control; see `protocol.h`). It carries protocol-level errors, optional capability discovery, optional link-health semantics, and optional metrics. User services (bootloader, telemetry, etc.) remain unaware of NM on the wire but may programatically interact with the capabilities it provides. For example, if a service rejects a payload delivered by the TransportEntity due to an invalid length, NM will record and potentially report the error.
+Network Management (NM) is a mandatory normal **Service** (`service_type` reserved for protocol control; see `protocol.h`). Every compliant implementation shall support the defined NM protocol error messages. User services (bootloader, telemetry, etc.) remain unaware of NM on the wire. For example, if a service rejects a payload delivered by the LinkEntity due to an invalid length, NM records and reports the protocol error when the error is defined as peer-directed.
 
 ### Responsibilities
 
@@ -234,26 +236,27 @@ Typical **triggers** for an NM TX:
 
 | Trigger | Source | Example NM message |
 |---------|--------|-------------------|
-| Link parse / dispatch failure | Transport Entity or Receiver after a valid CRC | Unsupported service type, unsupported extensions, frame too large |
-| No handler for `service_type` | Transport Entity | Unsupported service type (includes offending ID) |
-| Service rejects payload | User service returns an error from a TE API (e.g. `receivePayload` / service callback) | Payload rejected (length or service rules) |
+| Link parse / dispatch failure | Link Entity or Receiver after a valid CRC | Unsupported service type, unsupported extensions |
+| No handler for `service_type` | Link Entity | Unsupported service type (includes offending ID) |
+| Service rejects payload | User service returns an error from a Link Entity API (e.g. `receivePayload` / service callback) | Payload rejected (length or service rules) |
 
-The Transport Entity detects the condition, notifies the NM module, and **NM formats and transmits** the response frame.
+The Link Entity detects the condition, notifies the NM module, and **NM formats and transmits** the response frame.
 
 **Local-only (not sent to peer)**
 
-- **CRC mismatch** and other failures before a well-formed PDU is available: count in **metrics**, log, and surface to the application (callback or polled state). **Do not** send individual CRC error reports to the peer. The total count may be sent in metrics.
+- **CRC mismatch** and other failures before a well-formed PDU is available: record locally, log, and surface to the application (callback or polled state). **Do not** send individual CRC error reports to the peer. An optional Metrics Service may report aggregate counts.
 - Other local RX state (framing errors, buffer overrun) follows the same policy unless explicitly added later.
 
 **Application visibility**  
-Errors that result in an NM TX to the peer should also be visible locally (callback, link state, and logging when enabled). Local-only errors use the same application-facing diagnostics path where practical, without generating a peer NM frame.
+Errors that result in an NM TX to the peer should also be visible locally (callback or polled state, and logging when enabled). Local-only errors use the same application-facing diagnostics path where practical, without generating a peer NM frame.
 
 ### Message model (conceptual)
 
 NM payloads use a small typed record style, e.g. **{message kind, value}**:
 
 - **Errors:** `{UnsupportedServiceType, service_id}`, `{UnsupportedExtension, extension_bitmask}`, `{PayloadRejected, ...}`, etc.
-- **Capabilities (optional):** reuse the same shape where useful, e.g. `{SupportedExtensions, mask}`, `{MaxServicePayload, bytes}`.
+
+Every compliant implementation shall be able to receive the mandatory NM error messages. An NM error shall **never generate another NM error response**, preventing error-response loops.
 
 Exact opcodes, sizes, and endianness are **not fixed in this document** (see TODOs below).
 
@@ -265,53 +268,25 @@ Most NM messages are defined to behave **the same with or without** the addressi
 - If a peer sends a frame **with** addressing to a host that does not implement that extension, the host responds with **Unsupported extension** (NM), typically **without** addressing on the reply.
 - Intended deployment on a multi-drop link: **all peers use addressing, or none do**; mixed mode is not a design goal.
 
-### Capabilities advertisement
+## Optional Protocol Services
 
-Optional NM messages may advertise:
+Features that are useful across applications but are not required for basic link interoperability shall be implemented as separate optional Services rather than expanding mandatory Network Management.
 
-- Supported `service_type` values (or a bitmask),
-- Supported header extension bits,
-- Maximum service payload size (and/or guaranteed minimum the host honors).
+Possible optional Services include:
 
-Probing by sending user traffic and observing `UnsupportedServiceType` remains valid; explicit capabilities reduce guesswork during bring-up and help separate “service not integrated” from “service not supported.”
+- **Capability discovery:** supported `service_type` values, supported header extensions, and maximum Service Payload capacity.
+- **Link health:** application-facing connection / compatibility state and related link-health semantics.
+- **Metrics:** low-rate TX/RX counts, bad CRC count, oversize and unsupported-type/extension counts, UART RX high-water or overrun.
+- **Link configuration:** optional runtime configuration such as extensions, flow control, or baud rate.
 
-### Link state (optional, application-facing)
-
-NM (with TE input) may expose a single **link state** for triage, pollable or callback-driven:
-
-| State | Meaning (summary) |
-|-------|-------------------|
-| **Disconnected** | No valid decoded frame from the peer within timeout *X* |
-| **Connected** | At least one valid frame within *X* (includes NM frames, including errors) |
-| **LinkError** | Connected, and the peer has reported link-level compatibility problems via NM |
-| **Healthy** | Connected, and no such peer-reported compatibility errors in the tracking window |
-
-*Disconnected* → physical/link down. *Connected* but user services fail → likely app or registration issue. *LinkError* → service ID or extension mismatch.
-
-Timeout *X*, persistence of *LinkError*, and whether local unsupported-service events affect *Healthy* are not finalized.
-
-### Optional metrics
-
-MCU firmware may periodically emit **low-rate** NM metrics (TX/RX frame counts, bad CRC count, oversize, unsupported type/extension counts, UART RX high-water or overrun). Host-side logging only; rate limits TBD.
-
-### Advanced (post-MVP, optional)
-
-Configuration of extensions, flow control, or baud rate via NM is possible but not required for the first bootloader-focused release.
+Exact Service IDs, message formats, and behavior for these optional Services are not defined yet.
 
 ### Network Management — open items / TODOs
 
-Initial NM Feature Set:
-- Define **payload layout** for each mandatory message kind (size, versioning, max NM payload length).
+- Define **payload layout** for each mandatory error message kind (size, versioning, max NM payload length).
 - Complete list of **error kinds** and which are peer-TX vs local-only (CRC confirmed local-only).
-- TE ↔ NM **API**: how Receiver/Transport Entity signals each condition; exact service callback signature for payload rejection.
-- Link state: timeout *X*, *LinkError* / *Healthy* rules, interaction with local errors.
-- Host tool behavior when NM is not implemented on the peer (silent drop vs timeout only).
-
-NM Optional Features (later):
-- Define **payload layout** for each optional message kind (size, versioning, max NM payload length).
-- **Rate limiting** for NM TX and periodic metrics.
-- Capabilities: request/response vs unsolicited announce vs error-only MVP.
-- Whether **metrics** are host-pull, MCU-push, or both.
+- Link Entity ↔ NM **API**: how Receiver/Link Entity signals each condition; exact service callback signature for payload rejection.
+- Define behavior for malformed or otherwise invalid NM error payloads; they are handled locally and shall not generate another NM error.
 
 
 ## Receive Processing
@@ -336,9 +311,9 @@ This ordering ensures that variable or Service-specific fields are not trusted b
 ```mermaid
 sequenceDiagram
   participant AppA as App on host A
-  participant TEA as Transport Entity A
+  participant TEA as Link Entity A
   participant Wire as Byte stream
-  participant TEB as Transport Entity B
+  participant TEB as Link Entity B
   participant AppB as App on host B
   participant NMB as NM service B
 
@@ -348,14 +323,14 @@ sequenceDiagram
   Wire->>TEB: bytes
   TEB->>TEB: Unstuff, verify CRC, parse header
   alt CRC fail
-    TEB->>TEB: metrics + local notify (no NM TX)
+    TEB->>TEB: local record + notify (no NM TX)
   else CRC ok, dispatch
     TEB->>AppB: ServicePayload callback
     alt service rejects payload
       AppB-->>TEB: error
       TEB->>NMB: report rejection
       NMB->>Wire: NM error frame
-      Wire->>TEA: peer NM (optional consume)
+      Wire->>TEA: peer NM error (mandatory receive support)
     else accept
       AppB-->>TEB: ok
     end
