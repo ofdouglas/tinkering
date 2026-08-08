@@ -24,7 +24,7 @@ class IostreamRaiiFlagsRestorer {
 };
 
 // Print a hex dump of a span of bytes. Format ex: 42 01 2A
-inline std::ostream& operator<<(std::ostream& os, const Span<const uint8_t>& span) {
+inline std::ostream& operator<<(std::ostream& os, const util::Span<const uint8_t>& span) {
     IostreamRaiiFlagsRestorer flags_restorer{os};
 
     for (uint8_t byte : span) {
@@ -35,12 +35,12 @@ inline std::ostream& operator<<(std::ostream& os, const Span<const uint8_t>& spa
 
 // Print a hex dump of a vector of bytes. Format ex: 42 01 2A
 inline std::ostream& operator<<(std::ostream& os, const std::vector<uint8_t>& vector) {
-    return os << Span<const uint8_t>{vector.data(), vector.size()};
+    return os << util::Span<const uint8_t>{vector.data(), vector.size()};
 }
 
-// Print a UintVariant as a zero-padded hex string of correct width for the type
+// Print a util::UintVariant as a zero-padded hex string of correct width for the type
 // Format ex: 0xFE, 0x002A, 0xDEADBEEF
-inline std::ostream& operator<<(std::ostream& os, const UintVariant& uint_variant) {
+inline std::ostream& operator<<(std::ostream& os, const util::UintVariant& uint_variant) {
     IostreamRaiiFlagsRestorer flags_restorer{os};
 
     std::visit([&os](auto&& value) -> void {

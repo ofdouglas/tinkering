@@ -30,7 +30,7 @@ public:
     static TestInput bytes(std::initializer_list<uint8_t> data);
     static TestInput ascii(const char* text);
 
-    Span<const uint8_t> span() const;
+    util::Span<const uint8_t> span() const;
     std::string label() const;
     void print(std::ostream& os) const;
 
@@ -67,7 +67,7 @@ public:
     const CrcAlgorithm& algorithm() const { return algorithm_; }
     uint64_t expectedCrc() const { return expected_crc_; }
 
-    UintVariant wrapExpected() const;
+    util::UintVariant wrapExpected() const;
 
 private:
     CrcExpectation(std::string name, CrcAlgorithm algorithm, uint64_t expected_crc);

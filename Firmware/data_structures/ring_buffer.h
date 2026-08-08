@@ -55,7 +55,7 @@ public:
         return true;
     }
 
-    bool enqueue(Span<const T> items) {
+    bool enqueue(util::Span<const T> items) {
         for (const auto& item : items) {
             if (!enqueue(item)) {
                 return false;
@@ -73,7 +73,7 @@ public:
         return true;
     }
 
-    size_t dequeue(Span<T> data) {
+    size_t dequeue(util::Span<T> data) {
         size_t i = 0U;
         while (i < data.size()) {
             if (!dequeue(data[i])) {

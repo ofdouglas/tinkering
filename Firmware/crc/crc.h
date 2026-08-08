@@ -1,18 +1,23 @@
 #pragma once
+/*
+ * @file  crc.h
+ * @brief Implements the CRC calculation algorithm.
+*/
 
-#include <stdint.h>
+#include <cstdint>
 #include <type_traits>
 #include <limits>
 
 #include "util/span.h"
 #include "util/static_string.h"
 
+// TODO: should this be in ::details?
 namespace crc::details {
 
 // CRC algorithm name string
 // TODO: detect truncation / name overflow
 static constexpr size_t kMaxNameLength = 16U;
-using NameString = StaticString<kMaxNameLength>;
+using NameString = util::StaticString<kMaxNameLength>;
 
 /**
  * @brief Calculate the CRC of a given input data using the bitwise software algorithm.
@@ -25,17 +30,17 @@ using NameString = StaticString<kMaxNameLength>;
  * @todo Support incremental processing (update, ... finalize)
  */
  template <typename CrcAlgorithm>
- typename CrcAlgorithm::value_type crcBitwise(Span<const uint8_t> input) {
-    using T = typename CrcAlgorithm::value_type;
-    static_assert(std::is_integral<T>::value, "T must be an integral type");
-    static_assert(std::is_unsigned<T>::value, "T must be an unsigned type");
+ typename CrcAlgorithm::value_type crcBitwise(util::Span<const uint8_t> input) {
     static_assert(!(CrcAlgorithm::reflect_in || CrcAlgorithm::reflect_out), "Reflection not implemented yet");
 
+    using T = typename CrcAlgorithm::value_type;
     constexpr T kMsbBit = static_cast<T>((std::numeric_limits<T>::max() >> 1U) + 1U);
-    T result = CrcAlgorithm::initial;
+    // MSB-first byte-at-a-time: each new byte enters the top 8 bits of the W-bit register.
+    constexpr size_t kDataShift = 8U * (sizeof(T) - 1U);
 
+    T result = CrcAlgorithm::initial;
     for (auto x : input) {
-        result ^= x;
+        result ^= static_cast<T>(x) << kDataShift;
         for (int i = 0; i < 8; i++) {
             if (result & kMsbBit) {
                 result = (result << 1U) ^ CrcAlgorithm::polynomial;
@@ -75,7 +80,7 @@ struct SpecImpl {
     static constexpr const char* name() { return Derived::name(); }
 
     // Implementation defined via link-seam injection?
-    static constexpr value_type compute(Span<const uint8_t> input) {
+    static constexpr value_type compute(util::Span<const uint8_t> input) {
         return details::crcBitwise<Derived>(input);
     }
 
@@ -84,18 +89,3 @@ struct SpecImpl {
 
 } // namespace crc::details
 
-namespace crc {
-
-struct SaeJ1850 : details::SpecImpl<SaeJ1850, uint8_t, 0x1D, 0xFF, 0xFF, false, false> {
-    static constexpr const char* name() { return "SaeJ1850"; }
-};
-
-struct AutosarCrc8 : details::SpecImpl<AutosarCrc8, uint8_t, 0x2F, 0xFF, 0xFF, false, false> {
-    static constexpr const char* name() { return "AutosarCrc8"; }
-};
-
-// struct Crc16Ccitt : details::SpecImpl<Crc16Ccitt, uint16_t, 0x1021, 0xFFFF, 0x0000, true, true> {
-//     static constexpr const char* name() { return "Crc16Ccitt"; }
-// };
-
-} // namespace crc

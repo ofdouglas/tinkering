@@ -7,7 +7,7 @@
 
 #include <cstdint>
 
-#include "crc/crc.h"
+#include "crc/crc_algorithm.h"
 #include "util/integer.h"
 #include "util/span.h"
 
@@ -15,27 +15,28 @@ namespace crc::test {
 
 struct CrcAlgorithm {
     const char* name{};
-    UintVariant (*compute_fn)(Span<const uint8_t> input){};
-    UintVariant (*wrap_fn)(uint64_t expected){};
+    util::UintVariant (*compute_fn)(util::Span<const uint8_t> input){};
+    util::UintVariant (*wrap_fn)(uint64_t expected){};
 
-    UintVariant compute(Span<const uint8_t> input) const { return compute_fn(input); }
+    util::UintVariant compute(util::Span<const uint8_t> input) const { return compute_fn(input); }
 
-    UintVariant wrapExpected(uint64_t expected) const { return wrap_fn(expected); }
+    util::UintVariant wrapExpected(uint64_t expected) const { return wrap_fn(expected); }
 };
 
 template <typename Derived>
 constexpr CrcAlgorithm makeCrcAlgorithm() {
     return CrcAlgorithm{
         Derived::name(),
-        [](Span<const uint8_t> input) -> UintVariant { return crc::details::crcBitwise<Derived>(input); },
-        [](uint64_t expected) -> UintVariant {
+        [](util::Span<const uint8_t> input) -> util::UintVariant { return crc::details::crcBitwise<Derived>(input); },
+        [](uint64_t expected) -> util::UintVariant {
             return static_cast<typename Derived::value_type>(expected);
         },
     };
 }
 
-constexpr CrcAlgorithm kSaeJ1850Algorithm    = makeCrcAlgorithm<crc::SaeJ1850>();
-constexpr CrcAlgorithm kAutosarCrc8Algorithm = makeCrcAlgorithm<crc::AutosarCrc8>();
-// constexpr CrcAlgorithm kCrc16CcittAlgorithm = makeCrcAlgorithm<crc::Crc16Ccitt>();
+constexpr CrcAlgorithm kSaeJ1850Algorithm = makeCrcAlgorithm<crc::algorithm::SaeJ1850>();
+constexpr CrcAlgorithm kAutosarCrc8Algorithm = makeCrcAlgorithm<crc::algorithm::AutosarCrc8>();
+constexpr CrcAlgorithm kCrc16CcittFalseAlgorithm = makeCrcAlgorithm<crc::algorithm::Crc16CcittFalse>();
+// constexpr CrcAlgorithm kCrc32Mpeg2Algorithm = makeCrcAlgorithm<crc::algorithm::Crc32Mpeg2>();
 
 } // namespace crc::test

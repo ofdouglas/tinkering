@@ -1,4 +1,4 @@
-#include "logging/log.hpp"
+#include "logging/logging.h"
 #include "logging/mock_log.h"
 
 #include <cstdio>
@@ -13,7 +13,7 @@ bool setLogSink(LogSink* logSink) {
     return true;
 }
 
-bool writeToLogSink(Span<const uint8_t> message) {
+bool writeToLogSink(util::Span<const uint8_t> message) {
     (void)message;
     return true;
 }
@@ -56,13 +56,13 @@ bool transmitFormatted(const char* buf, size_t buf_size, int n) {
     return true;
 }
 
-bool writeMessage(const char* file, uint32_t line, Level level, StaticString<> message) {
+bool writeMessage(const char* file, uint32_t line, Level level, util::StaticString<> message) {
     char buf[128];
     const int n = formatLog(buf, sizeof(buf), file, line, levelTag(level), message.data(), message.length());
     return transmitFormatted(buf, sizeof(buf), n);
 }
 
-[[noreturn]] void fatal_at(const char* file, uint32_t line, StaticString<> message) {
+[[noreturn]] void fatal_at(const char* file, uint32_t line, util::StaticString<> message) {
     writeMessage(file, line, Level::Fatal, message);
     std::abort();
 }

@@ -1,8 +1,13 @@
-#ifndef SPAN_H
-#define SPAN_H
+#pragma once
+/*
+ * @file  span.h
+ * @brief A simple span class for C++17 and later.
+ */
 
-#include <stddef.h>
 #include <array>
+#include <cstddef>
+
+namespace util {
 
 template <typename T>
 class Span {
@@ -47,18 +52,18 @@ public:
     const T* end() const { return data_ + size_; }
     T* end() { return data_ + size_; }
 
-    const Span<T> subspan(size_t start, size_t length) const {
-        return Span<T>(data_ + start, length);
+    const util::Span<T> subspan(size_t start, size_t length) const {
+        return util::Span<T>(data_ + start, length);
     }
-    Span<T> subspan(size_t start, size_t length) {
-        return Span<T>(data_ + start, length);
+    util::Span<T> subspan(size_t start, size_t length) {
+        return util::Span<T>(data_ + start, length);
     }
 
-    const Span<T> subspan(size_t start) const {
-        return Span<T>(data_ + start, size_ - start);
+    const util::Span<T> subspan(size_t start) const {
+        return util::Span<T>(data_ + start, size_ - start);
     }
-    Span<T> subspan(size_t start) {
-        return Span<T>(data_ + start, size_ - start);
+    util::Span<T> subspan(size_t start) {
+        return util::Span<T>(data_ + start, size_ - start);
     }
 
 private:
@@ -66,4 +71,4 @@ private:
     size_t size_{0U};
 };
 
-#endif // SPAN_H
+} // namespace util

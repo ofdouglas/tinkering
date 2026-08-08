@@ -5,7 +5,7 @@
 #include <array>
 #include <cstring>
 #include <type_traits>
-#include "data_structures/span.h"
+#include "util/span.h"
 
 namespace Can {
 
@@ -54,15 +54,15 @@ public:
         setData(data);
     }
 
-    CanFrame(CanId<IdEnumT> can_id, Span<const uint8_t> data) : can_id_(can_id) {
+    CanFrame(CanId<IdEnumT> can_id, util::Span<const uint8_t> data) : can_id_(can_id) {
         setData(data);
     }
 
     void setData(uint64_t data) {
-        setData(Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&data), sizeof(data)));
+        setData(util::Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&data), sizeof(data)));
     }
 
-    bool setData(Span<const uint8_t> data) {
+    bool setData(util::Span<const uint8_t> data) {
         if (data.size() > data_.size()) {
             return false;
         }
@@ -76,7 +76,7 @@ public:
         crc_ = crc;
     }
 
-    size_t storeHdlcPayload(uint8_t protocol_type, Span<uint8_t> buffer) const {
+    size_t storeHdlcPayload(uint8_t protocol_type, util::Span<uint8_t> buffer) const {
         if (buffer.size() < kHdlcPayloadSize) {
             return 0U;
         }
@@ -93,7 +93,7 @@ public:
         return index;
     }
 
-    bool loadHdlcPayload(uint8_t expected_protocol_type, Span<const uint8_t> buffer) {
+    bool loadHdlcPayload(uint8_t expected_protocol_type, util::Span<const uint8_t> buffer) {
         if (buffer.size() < kHdlcPayloadSize) {
             return false;
         }
@@ -119,7 +119,7 @@ public:
 
     CanId<IdEnumT> can_id() const { return can_id_; }
     uint8_t data_len() const { return data_len_; }
-    Span<const uint8_t> data() const { return Span<const uint8_t>(data_.data(), data_len_); }
+    util::Span<const uint8_t> data() const { return util::Span<const uint8_t>(data_.data(), data_len_); }
     uint64_t data64() const {
         uint64_t value = 0U;
         std::memcpy(&value, data_.data(), sizeof(value));

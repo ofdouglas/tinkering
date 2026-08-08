@@ -4,7 +4,7 @@ MODULES := hdlc crc bootloader
 # Link in host unit tests instead of platform logging/clock sources.
 HOST_TEST_SUPPORT_SRCS := hal/mock_clocks.cpp logging/mock_log.cpp
 
-hdlc_SRCS := hdlc/hdlc_test.cpp hdlc/hdlc.cpp
+hdlc_SRCS := hdlc/test/hdlc_test.cpp hdlc/hdlc.cpp $(HOST_TEST_SUPPORT_SRCS)
 hdlc_TEST := hdlc_test
 
 crc_SRCS := crc/test/crc_test.cpp crc/test/crc_test_infra.cpp crc/crc.cpp

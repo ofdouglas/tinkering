@@ -11,6 +11,8 @@ using crc::test::ExpectationSpec;
 using crc::test::TestVector;
 using crc::test::kAutosarCrc8Algorithm;
 using crc::test::kSaeJ1850Algorithm;
+using crc::test::kCrc16CcittFalseAlgorithm;
+// using crc::test::kCrc32Mpeg2Algorithm;
 
 namespace {
 
@@ -21,6 +23,7 @@ const CrcTestCatalog& testCatalog() {
             {
                 {kSaeJ1850Algorithm, 0x12},
                 {kAutosarCrc8Algorithm, 0x05},
+                {kCrc16CcittFalseAlgorithm, 0x8976},
             },
         },
         {
@@ -28,6 +31,7 @@ const CrcTestCatalog& testCatalog() {
             {
                 {kSaeJ1850Algorithm, 0xE2},
                 {kAutosarCrc8Algorithm, 0xD0},
+                {kCrc16CcittFalseAlgorithm, 0xEF21},
             },
         },
         {
@@ -35,6 +39,15 @@ const CrcTestCatalog& testCatalog() {
             {
                 {kSaeJ1850Algorithm, 0xB3},
                 {kAutosarCrc8Algorithm, 0xEB},
+                {kCrc16CcittFalseAlgorithm, 0x4097},
+            },
+        },
+        {
+            {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39},
+            {
+                {kSaeJ1850Algorithm, 0x4B},
+                {kAutosarCrc8Algorithm, 0xDF},
+                {kCrc16CcittFalseAlgorithm, 0x29B1},
             },
         },
         {
@@ -42,6 +55,7 @@ const CrcTestCatalog& testCatalog() {
             {
                 {kSaeJ1850Algorithm, 0x8C},
                 {kAutosarCrc8Algorithm, 0x4B},
+                {kCrc16CcittFalseAlgorithm, 0x7484},
             },
         },
     }};

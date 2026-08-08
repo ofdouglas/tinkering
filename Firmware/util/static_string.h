@@ -1,11 +1,22 @@
 #pragma once
+/*
+ * @file  static_string.h
+ * @brief A simple string with internal storage (static / fixed-size array).
+ */
 
 #include <array>
 #include <cstddef>
 #include <cstring>
 
+namespace util {
+
+/** Default capacity for a StaticString. */
 constexpr size_t kDefaultStaticStringCapacity = 100U;
 
+/**
+ * A simple string with internal storage (static / fixed-size array).
+ * @tparam N The capacity of the string.
+ */
 template <size_t N = kDefaultStaticStringCapacity>
 class StaticString {
 public:
@@ -103,3 +114,4 @@ inline StaticString<> operator""_l(const char* data, size_t length) {
     return StaticString<>(data, length);
 }
 } // literals
+} // namespace util

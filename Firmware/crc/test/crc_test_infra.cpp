@@ -29,7 +29,7 @@ std::string inputPrefixHex(const std::vector<uint8_t>& input) {
 }
 
 uint64_t corruptExpectedCrc(uint64_t expected_crc, const CrcAlgorithm& algorithm) {
-    const UintVariant wrapped = algorithm.wrapExpected(expected_crc);
+    const util::UintVariant wrapped = algorithm.wrapExpected(expected_crc);
     return std::visit(
         [](auto value) -> uint64_t {
             using T = std::decay_t<decltype(value)>;
@@ -59,8 +59,8 @@ TestInput TestInput::ascii(const char* text) {
     return input;
 }
 
-Span<const uint8_t> TestInput::span() const {
-    return Span<const uint8_t>{data_.data(), data_.size()};
+util::Span<const uint8_t> TestInput::span() const {
+    return util::Span<const uint8_t>{data_.data(), data_.size()};
 }
 
 std::string TestInput::label() const {
@@ -100,7 +100,7 @@ CrcExpectation CrcExpectation::withNameSuffix(const char* suffix) const {
     return CrcExpectation{name_ + suffix, algorithm_, expected_crc_};
 }
 
-UintVariant CrcExpectation::wrapExpected() const {
+util::UintVariant CrcExpectation::wrapExpected() const {
     return algorithm_.wrapExpected(expected_crc_);
 }
 
@@ -162,8 +162,8 @@ void CrcTestCase::run() const {
 
     SCOPED_TRACE(expectation.name());
 
-    const UintVariant actual_crc = expectation.algorithm().compute(input.span());
-    const UintVariant expected_crc = expectation.wrapExpected();
+    const util::UintVariant actual_crc = expectation.algorithm().compute(input.span());
+    const util::UintVariant expected_crc = expectation.wrapExpected();
 
     const bool matches = (expected_crc == actual_crc);
     const bool negative_test = polarity_ == TestPolarity::kExpectMismatch;

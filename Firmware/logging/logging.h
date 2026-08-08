@@ -1,11 +1,8 @@
-/**
-  ******************************************************************************
-  * @file    log.hpp
-  * @brief   C++ logging API
-  ******************************************************************************
-  */
-
 #pragma once
+/**
+ * @file  logging.h
+ * @brief Embedded C++ logging API
+ */
 
 #include <cstdint>
 #include <cstdio>
@@ -13,8 +10,8 @@
 #include <type_traits>
 #include <inttypes.h>
 
-#include "data_structures/static_string.h"
-#include "data_structures/span.h"
+#include "util/static_string.h"
+#include "util/span.h"
 
 namespace logging {
 
@@ -39,16 +36,16 @@ class LogSink {
 public:
     virtual ~LogSink() = default;
 
-    virtual bool write(Span<const uint8_t> message) = 0;
-    // virtual bool write(const char* file, uint32_t line, Level level, StaticString<> message) = 0;
+    virtual bool write(util::Span<const uint8_t> message) = 0;
+    // virtual bool write(const char* file, uint32_t line, Level level, util::StaticString<> message) = 0;
 };
 
 bool setLogSink(LogSink* logSink);
 
 // TODO: clean up naming
-bool writeToLogSink(Span<const uint8_t> message);
-bool writeMessage(const char* file, uint32_t line, Level level, StaticString<> message);
-[[noreturn]] void fatal_at(const char* file, uint32_t line, StaticString<> message);
+bool writeToLogSink(util::Span<const uint8_t> message);
+bool writeMessage(const char* file, uint32_t line, Level level, util::StaticString<> message);
+[[noreturn]] void fatal_at(const char* file, uint32_t line, util::StaticString<> message);
 
 
 /** 
@@ -79,7 +76,7 @@ public:
     }
 
     template <size_t M>
-    LocalLogger& operator<<(const StaticString<M>& str) {
+    LocalLogger& operator<<(const util::StaticString<M>& str) {
         buffer_.append(str.data(), str.length());
         return *this;
     }
@@ -136,7 +133,7 @@ public:
     }
 
     // Hex dump
-    LocalLogger& operator<<(Span<uint8_t> data) {
+    LocalLogger& operator<<(util::Span<uint8_t> data) {
         for (auto d : data) {
             appendValue("%02X", d);
         }
@@ -156,7 +153,7 @@ private:
     const uint32_t line_{0U};
     Level level_{Level::Info};
     Radix radix_{Radix::Decimal};
-    StaticString<> buffer_{};
+    util::StaticString<> buffer_{};
 };
 
 } /* namespace logging */

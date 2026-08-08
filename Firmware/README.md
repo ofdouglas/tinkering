@@ -1,6 +1,6 @@
 # Firmware
 
-Host-side C++14 libraries and unit tests (protocol stacks, CRC reference models, shared data structures).
+Host-side C++17 libraries and unit tests (protocol stacks, CRC reference models, shared data structures).
 
 ## Tests
 
@@ -53,4 +53,4 @@ foo_TEST := foo_test
 
 3. `make test MODULE=foo`
 
-Includes use the Firmware root: `#include "foo/foo.h"`, `#include "data_structures/span.h"`.
+Includes use the Firmware root: `#include "foo/foo.h"`, `#include "util/span.h"`.

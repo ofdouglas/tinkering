@@ -5,7 +5,7 @@
   ******************************************************************************
   */
 
-#include "log.hpp"
+#include "logging.h"
 #include "log_c.h"
 #include "bsp/base_bsp.h"
 
@@ -20,7 +20,7 @@ bool setLogSink(LogSink* logSink) {
     return true;
 }
 
-bool writeToLogSink(Span<const uint8_t> message) {
+bool writeToLogSink(util::Span<const uint8_t> message) {
     if (logSink_ == nullptr) {
         return false;
     }
@@ -67,17 +67,17 @@ bool transmitFormatted(const char* buf, size_t buf_size, int n) {
     const uint16_t len = static_cast<uint16_t>((n < max_len) ? n : max_len);
 
     // TODO: log write errors (increment error count, drain later)
-    Span<const uint8_t> message(reinterpret_cast<const uint8_t*>(buf), len);
+    util::Span<const uint8_t> message(reinterpret_cast<const uint8_t*>(buf), len);
     return writeToLogSink(message);
 }
 
-bool writeMessage(const char* file, uint32_t line, Level level, StaticString<> message) {
+bool writeMessage(const char* file, uint32_t line, Level level, util::StaticString<> message) {
     char buf[128];
     const int n = formatLog(buf, sizeof(buf), file, line, levelTag(level), message.data(), message.length());
     return transmitFormatted(buf, sizeof(buf), n);
 }
 
-[[noreturn]] void fatal_at(const char* file, uint32_t line, StaticString<> message) {
+[[noreturn]] void fatal_at(const char* file, uint32_t line, util::StaticString<> message) {
     // TODO
     // __disable_irq();
     writeMessage(file, line, Level::Fatal, message);
@@ -95,5 +95,5 @@ bool writeMessage(const char* file, uint32_t line, Level level, StaticString<> m
 } // namespace logging
 
 extern "C" void log_fatal_c(const char* file, uint32_t line, const char* msg, size_t msg_len) {
-    logging::fatal_at(file, line, StaticString<>(msg, msg_len));
+    logging::fatal_at(file, line, util::StaticString<>(msg, msg_len));
 }

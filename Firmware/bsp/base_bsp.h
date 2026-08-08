@@ -3,8 +3,8 @@
 
 #include <cstdint>
 #include <cstddef>
-#include "logging/log.hpp"
-#include "data_structures/span.h"
+#include "logging/logging.h"
+#include "util/span.h"
 
 class BaseBsp {
 public:

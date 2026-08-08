@@ -8,7 +8,7 @@
 #pragma once
 
 #include "data_structures/static_string.h"
-#include "log.hpp"
+#include "logging.h"
 
 #include <array>
 #include <cstdint>
@@ -73,7 +73,7 @@ public:
         return appendString(str, strlen(str));
     }
 
-    SerializedLog& operator<<(StaticString<> str) {
+    SerializedLog& operator<<(util::StaticString<> str) {
         return appendString(str.data(), str.length());
     }
 
@@ -130,7 +130,7 @@ public:
                 }
                 case ItemType::kString:
                 {
-                    StaticString<> str{reinterpret_cast<const char*>(ptr), header.size_};
+                    util::StaticString<> str{reinterpret_cast<const char*>(ptr), header.size_};
                     output << str;
                     break;
                 }
@@ -187,7 +187,7 @@ public:
         return *this;
     }
 
-    DeferredLogger& operator<<(const StaticString<>& str) {
+    DeferredLogger& operator<<(const util::StaticString<>& str) {
         log_data_ << str;
         return *this;
     }
