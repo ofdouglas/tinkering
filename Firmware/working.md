@@ -11,13 +11,8 @@
  - Develop C++ Transmitter class (for both host and client)
 
 ### Firmware/crc
-- Add a CRC-16
-- Support incremental computation (update ... finalize)
-- Implement lookup table approach
-- API: add a way to select the implementation type
-- Support input / output reflection
-- More test vectors
-- Test correct output formatting for negative tests / errors
+Features:
+ - Support incremental computation (update ... finalize)
 
 
 ## 2. Medium Priority TODOs
@@ -27,6 +22,17 @@
  - Add way to clean make build targets without re-fetching gtest
  - Evalute using Bazel instead of make
 
+### Firmware/crc
+Features:
+ - Implement lookup table approach
+ - API: add a way to select the implementation type
+ - Support input / output reflection
+Tests:
+ - Check against reputable sources
+ - Automate test data generation
+ - Add test vectors of other lengths
+ - Add adversarial test vectors (ex: leading zero, trailing zero, etc.)
+ - Test correct output formatting for negative tests / errors
 
 ### Firmware/osal
  - High-level design of the Operating System Abstraction Layer

@@ -37,6 +37,6 @@ constexpr CrcAlgorithm makeCrcAlgorithm() {
 constexpr CrcAlgorithm kSaeJ1850Algorithm = makeCrcAlgorithm<crc::algorithm::SaeJ1850>();
 constexpr CrcAlgorithm kAutosarCrc8Algorithm = makeCrcAlgorithm<crc::algorithm::AutosarCrc8>();
 constexpr CrcAlgorithm kCrc16CcittFalseAlgorithm = makeCrcAlgorithm<crc::algorithm::Crc16CcittFalse>();
-// constexpr CrcAlgorithm kCrc32Mpeg2Algorithm = makeCrcAlgorithm<crc::algorithm::Crc32Mpeg2>();
+constexpr CrcAlgorithm kCrc32Mpeg2Algorithm = makeCrcAlgorithm<crc::algorithm::Crc32Mpeg2>();
 
 } // namespace crc::test

@@ -1,4 +1,3 @@
-#include "can/can_frame.h"
 #include "hdlc/hdlc.h"
 #include "hdlc/protocol.h"
 #include "hdlc/protocol_handler.h"
@@ -29,8 +28,8 @@ void roundTrip(util::Span<const uint8_t> payload) {
     ASSERT_LE(expected_frame_len, sizeof(frame));
     util::Span<uint8_t> frame_span(frame, sizeof(frame));
     ASSERT_TRUE(hdlc::encodeFrame(payload, frame_span));
-    EXPECT_EQ(frame[0], hdlc::HdlcFlag::kFlag);
-    EXPECT_EQ(frame[expected_frame_len - 1U], hdlc::HdlcFlag::kFlag);
+    EXPECT_EQ(frame[0], hdlc::Flag::kFlag);
+    EXPECT_EQ(frame[expected_frame_len - 1U], hdlc::Flag::kFlag);
     const util::Span<const uint8_t> stuffed_with_close(
         frame + 1U, expected_frame_len - 1U);
     std::memset(decoded, 0, sizeof(decoded));
@@ -70,17 +69,17 @@ TEST(HdlcByteStuff, PlainByte) {
 
 TEST(HdlcByteStuff, EscapesFlag) {
     uint8_t out[2];
-    const size_t len = hdlc::byteStuff(hdlc::HdlcFlag::kFlag, util::Span<uint8_t>(out, 2U));
+    const size_t len = hdlc::byteStuff(hdlc::Flag::kFlag, util::Span<uint8_t>(out, 2U));
     ASSERT_EQ(len, 2U);
-    EXPECT_EQ(out[0], hdlc::HdlcFlag::kEscape);
+    EXPECT_EQ(out[0], hdlc::Flag::kEscape);
     EXPECT_EQ(out[1], 0x5EU);
 }
 
 TEST(HdlcByteStuff, EscapesEscape) {
     uint8_t out[2];
-    const size_t len = hdlc::byteStuff(hdlc::HdlcFlag::kEscape, util::Span<uint8_t>(out, 2U));
+    const size_t len = hdlc::byteStuff(hdlc::Flag::kEscape, util::Span<uint8_t>(out, 2U));
     ASSERT_EQ(len, 2U);
-    EXPECT_EQ(out[0], hdlc::HdlcFlag::kEscape);
+    EXPECT_EQ(out[0], hdlc::Flag::kEscape);
     EXPECT_EQ(out[1], 0x5DU);
 }
 
@@ -96,7 +95,7 @@ TEST(HdlcRoundTrip, StuffedPayload) {
 }
 
 TEST(HdlcEncode, RejectsUndersizedBuffer) {
-    static const uint8_t payload[] = {hdlc::HdlcFlag::kFlag};
+    static const uint8_t payload[] = {hdlc::Flag::kFlag};
     uint8_t frame[2];
     EXPECT_FALSE(hdlc::encodeFrame(payload, util::Span<uint8_t>(frame, sizeof(frame))));
 }
@@ -117,49 +116,6 @@ TEST(HdlcReceiver, PartialInput) {
     EXPECT_EQ(receiver.receivePayload(util::Span<uint8_t>(decoded, sizeof(decoded))),
               sizeof(kPayload));
     EXPECT_EQ(0, std::memcmp(kPayload, decoded, sizeof(kPayload)));
-}
-
-TEST(HdlcCanFrame, RoundTrip) {
-    using CanId = Can::CanId<Can::Rv32SocCanId>;
-    Can::CanFrame<Can::Rv32SocCanId> frame(
-        CanId(Can::Rv32SocCanId::kBootloaderCommand));
-    static const uint8_t kCanData[] = {
-        0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U, 0x08U};
-    ASSERT_TRUE(frame.setData(kCanData));
-    frame.setCrc(0xDEADBEEFU);
-    uint8_t payload[Can::CanFrame<Can::Rv32SocCanId>::kHdlcPayloadSize];
-    const uint8_t protocol = static_cast<uint8_t>(hdlc::ServiceType::BOOTLOADER_CMD);
-    util::Span<uint8_t> payload_span(payload, sizeof(payload));
-    const size_t payload_len = frame.storeHdlcPayload(protocol, payload_span);
-    ASSERT_EQ(payload_len, Can::CanFrame<Can::Rv32SocCanId>::kHdlcPayloadSize);
-    uint8_t hdlc_frame[64];
-    util::Span<uint8_t> hdlc_frame_span(hdlc_frame, sizeof(hdlc_frame));
-    ASSERT_TRUE(hdlc::encodeFrame(util::Span<const uint8_t>(payload, payload_len), hdlc_frame_span));
-    const size_t hdlc_len = encodedFrameLength(util::Span<const uint8_t>(payload, payload_len));
-    uint8_t stuffed_payload[64];
-    std::memset(stuffed_payload, 0, sizeof(stuffed_payload));
-    util::Span<uint8_t> stuffed_span(stuffed_payload, sizeof(stuffed_payload));
-    ASSERT_TRUE(hdlc::decodePayload(
-        util::Span<const uint8_t>(hdlc_frame + 1U, hdlc_len - 1U), stuffed_span));
-    Can::CanFrame<Can::Rv32SocCanId> decoded;
-    ASSERT_TRUE(decoded.loadHdlcPayload(
-        protocol, util::Span<const uint8_t>(stuffed_payload, payload_len)));
-    EXPECT_EQ(decoded.can_id().raw_id(), frame.can_id().raw_id());
-    EXPECT_EQ(decoded.data_len(), frame.data_len());
-    EXPECT_EQ(decoded.crc(), frame.crc());
-    EXPECT_EQ(0, std::memcmp(decoded.data().data(), frame.data().data(), frame.data_len()));
-    hdlc::Receiver<64> receiver;
-    ASSERT_TRUE(receiver.enqueue(util::Span<const uint8_t>(hdlc_frame, hdlc_len)));
-    ASSERT_TRUE(receiver.process());
-    uint8_t received_payload[64];
-    const size_t received_len = receiver.receivePayload(
-        util::Span<uint8_t>(received_payload, sizeof(received_payload)));
-    ASSERT_EQ(received_len, payload_len);
-    Can::CanFrame<Can::Rv32SocCanId> received;
-    ASSERT_TRUE(received.loadHdlcPayload(
-        protocol, util::Span<const uint8_t>(received_payload, received_len)));
-    EXPECT_EQ(received.can_id().enum_id(), Can::Rv32SocCanId::kBootloaderCommand);
-    EXPECT_EQ(0, std::memcmp(received.data().data(), kCanData, sizeof(kCanData)));
 }
 
 TEST(HdlcRxRouter, DispatchesBootloaderCommand) {

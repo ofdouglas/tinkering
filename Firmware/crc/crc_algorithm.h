@@ -45,9 +45,9 @@ struct Crc16CcittFalse : details::SpecImpl<Crc16CcittFalse, uint16_t, 0x1021, UI
  *  CRC-32 Algorithms
  ******************************************************************************/
 
-//  struct Crc32Mpeg2 : details::SpecImpl<Crc32Mpeg2, uint32_t, 0x04C11DB7, UINT32_MAX, 0U, false, false> {
-//     static constexpr const char* name() { return "Crc32Mpeg2"; }
-// };
+ struct Crc32Mpeg2 : details::SpecImpl<Crc32Mpeg2, uint32_t, 0x04C11DB7, UINT32_MAX, 0U, false, false> {
+    static constexpr const char* name() { return "Crc32Mpeg2"; }
+};
 
 // TODO: Ethernet CRC-32 once reflection is implemented
 // struct Crc32Ethernet : details::SpecImpl<Crc32Ethernet, uint32_t, 0x04C11DB7, UINT32_MAX, UINT32_MAX, true, true> {

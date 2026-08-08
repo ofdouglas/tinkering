@@ -1,5 +1,8 @@
-#ifndef HDLC_H
-#define HDLC_H
+#pragma once
+/*
+ * @file  hdlc.h
+ * @brief HDLC framing for the custom link-layer protocol.
+ */
 
 #include <cstdint>
 #include <cstddef>
@@ -13,7 +16,8 @@
 
 namespace hdlc {
 
-    struct HdlcFlag {
+    // Special byte values used in the HDLC framing protocol.
+    struct Flag {
         static constexpr uint8_t kFlag     = 0x7E;
         static constexpr uint8_t kEscape   = 0x7D;
         static constexpr uint8_t kXorValue = 0x20;
@@ -23,6 +27,11 @@ namespace hdlc {
     bool encodeFrame(util::Span<const uint8_t> payload, util::Span<uint8_t> frame);
     bool decodePayload(util::Span<const uint8_t> input, util::Span<uint8_t> output);
 
+    /*
+     * @brief Interface for a byte-oriented HDLC receiver.
+     *
+     * @todo Define API contract fully.
+     */
     class ReceiverInterface {
     public:
         virtual ~ReceiverInterface() = default;
@@ -33,6 +42,11 @@ namespace hdlc {
         virtual size_t receivePayload(util::Span<uint8_t> output) = 0;
     };
 
+    /*
+     * @brief Basic HDLC receiver.
+     *
+     * @todo Document this.
+     */
     template <size_t PayloadBufferSize, size_t InputRingCapacity = PayloadBufferSize * 2U + 8U>
     class Receiver : public ReceiverInterface {
     private:
@@ -90,16 +104,16 @@ namespace hdlc {
                 }
                 switch (state_) {
                     case State::IDLE:
-                        if (data == HdlcFlag::kFlag) {
+                        if (data == Flag::kFlag) {
                             payload_index_ = 0U;
                             state_ = State::FRAME_DELIMETER;
                         }
                         break;
 
                     case State::FRAME_DELIMETER:
-                        if (data == HdlcFlag::kFlag) {
+                        if (data == Flag::kFlag) {
                             payload_index_ = 0U;
-                        } else if (data == HdlcFlag::kEscape) {
+                        } else if (data == Flag::kEscape) {
                             state_ = State::ESCAPE;
                         } else if (payload_index_ >= PayloadBufferSize) {
                             logPayloadBufferOverflow();
@@ -115,15 +129,15 @@ namespace hdlc {
                             logPayloadBufferOverflow();
                             return false;
                         }
-                        payload_buffer_[payload_index_++] = static_cast<uint8_t>(data ^ HdlcFlag::kXorValue);
+                        payload_buffer_[payload_index_++] = static_cast<uint8_t>(data ^ Flag::kXorValue);
                         state_ = State::DATA;
                         break;
 
                     case State::DATA:
-                        if (data == HdlcFlag::kFlag) {
+                        if (data == Flag::kFlag) {
                             state_ = State::FRAME_DELIMETER;
                             return true;
-                        } else if (data == HdlcFlag::kEscape) {
+                        } else if (data == Flag::kEscape) {
                             state_ = State::ESCAPE;
                         } else if (payload_index_ >= PayloadBufferSize) {
                             logPayloadBufferOverflow();
@@ -171,4 +185,3 @@ namespace hdlc {
     };
 
 } // namespace hdlc
-#endif // HDLC_H
