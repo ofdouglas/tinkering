@@ -14,8 +14,10 @@ bool setLogSink(LogSink* logSink) {
 }
 
 bool writeToLogSink(util::Span<const uint8_t> message) {
-    (void)message;
-    return true;
+    if (logSink_ == nullptr) {
+        return false;
+    }
+    return logSink_->write(message);
 }
 
 const char* fileBasename(const char* path) {
@@ -50,10 +52,15 @@ int formatLog(char* buf, size_t buf_size, const char* file, uint32_t line, const
 }
 
 bool transmitFormatted(const char* buf, size_t buf_size, int n) {
-    (void)buf;
-    (void)buf_size;
-    (void)n;
-    return true;
+    if (n <= 0 || logSink_ == nullptr) {
+        return false;
+    }
+
+    const int max_len = static_cast<int>(buf_size) - 1;
+    const size_t len = static_cast<size_t>((n < max_len) ? n : max_len);
+
+    util::Span<const uint8_t> message(reinterpret_cast<const uint8_t*>(buf), len);
+    return writeToLogSink(message);
 }
 
 bool writeMessage(const char* file, uint32_t line, Level level, util::StaticString<> message) {
