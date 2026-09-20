@@ -1,0 +1,6 @@
+Device ATTINY2313A
+set communication.interface dw
+Hwtool PICkit5
+Program /home/ofdouglas/Design/tinkering/avr/main.elf -debug
+Reset
+Run

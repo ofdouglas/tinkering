@@ -13,6 +13,7 @@
 *.jou
 *.log
 *.xml
+*.inx
 *..metadata
 *.tar.gz
 *.plugins
@@ -23,5 +24,6 @@ _backup/
 FPGA/cpu/mem/
 build/
 obj_dir/
+*logs/
 
 *.code-workspace
