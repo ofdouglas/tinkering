@@ -7,7 +7,7 @@ uptime_ms:
     .skip 4
 
 
-.section .text
+.section .vectors, "ax", @progbits
 
 .global _vectors
 _vectors:
@@ -32,6 +32,9 @@ _vectors:
     rjmp    _trap  /* WDT_OVERFLOW  */
     rjmp    _trap  /* PCINT1  */
     rjmp    _trap  /* PCINT2  */
+
+
+.section .text
 
 _trap:
     rjmp    _trap
@@ -98,6 +101,13 @@ main:
     ldi     r18, _BV(WGM01)
     out     _SFR_IO_ADDR(TCCR0A), r18   /* CTC mode */
 
+    /*  Init USART, TX-only in polling mode */
+    /*  Baud rate = 76.8k */
+    ldi     r16, 12
+    out     _SFR_IO_ADDR(UBRRL), r16
+    ldi     r16, _BV(TXEN)
+    out     _SFR_IO_ADDR(UCSRB), r16
+
     /*  Enable interrupts */
     sei
 
@@ -135,7 +145,10 @@ loop500ms:
     brmi    loop500ms
 
     /* Run 500 ms tick */
-    rcall    tick500ms
+    rcall   toggle_led
+    ldi     r30, lo8(hello_str)
+    ldi     r31, hi8(hello_str)
+    rcall   putstr
 
     /* next_tick_time_ms += 500 ms */
     add     r4, r2
@@ -145,9 +158,32 @@ loop500ms:
 
     rjmp    loop500ms
 
-tick500ms:
+toggle_led:
     in      r18, _SFR_IO_ADDR(PORTD)
     ldi     r19, _BV(PD6)
     eor     r18, r19
     out     _SFR_IO_ADDR(PORTD), r18
     ret
+
+/* arguments: char c = r24 */
+putchar:
+    sbis    _SFR_IO_ADDR(UCSRA), UDRE
+    rjmp    putchar
+    out     _SFR_IO_ADDR(UDR), r24
+    ret
+
+/* arguments: char* str = Z register */
+putstr:
+    lpm     r24, Z+
+    tst     r24
+    breq    null_found
+    rcall   putchar
+    rjmp    putstr
+null_found:
+    ret
+
+
+.section .progmem.data, "a", @progbits
+
+hello_str:
+    .asciz "hello, world!\n"
