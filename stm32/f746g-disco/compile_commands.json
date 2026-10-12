@@ -1,0 +1,75 @@
+[
+  {
+    "directory": "/home/ofdouglas/Design/tinkering/stm32/f746g-disco",
+    "file": "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/main.c",
+    "output": "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/build/main.o",
+    "arguments": [
+      "arm-none-eabi-gcc",
+      "-DSTM32F746xx",
+      "-I/home/ofdouglas/Design/third_party/cmsis-device-f7/Include",
+      "-I/home/ofdouglas/Design/third_party/CMSIS_6/CMSIS/Core/Include",
+      "-mcpu=cortex-m7",
+      "-mthumb",
+      "-mfpu=fpv5-sp-d16",
+      "-mfloat-abi=hard",
+      "-std=c11",
+      "-Og",
+      "-g3",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-Wall",
+      "-Wextra",
+      "-c",
+      "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/main.c",
+      "-o",
+      "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/build/main.o"
+    ]
+  },
+  {
+    "directory": "/home/ofdouglas/Design/tinkering/stm32/f746g-disco",
+    "file": "/home/ofdouglas/Design/third_party/cmsis-device-f7/Source/Templates/system_stm32f7xx.c",
+    "output": "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/build/system_stm32f7xx.o",
+    "arguments": [
+      "arm-none-eabi-gcc",
+      "-DSTM32F746xx",
+      "-I/home/ofdouglas/Design/third_party/cmsis-device-f7/Include",
+      "-I/home/ofdouglas/Design/third_party/CMSIS_6/CMSIS/Core/Include",
+      "-mcpu=cortex-m7",
+      "-mthumb",
+      "-mfpu=fpv5-sp-d16",
+      "-mfloat-abi=hard",
+      "-std=c11",
+      "-Og",
+      "-g3",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-Wall",
+      "-Wextra",
+      "-c",
+      "/home/ofdouglas/Design/third_party/cmsis-device-f7/Source/Templates/system_stm32f7xx.c",
+      "-o",
+      "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/build/system_stm32f7xx.o"
+    ]
+  },
+  {
+    "directory": "/home/ofdouglas/Design/tinkering/stm32/f746g-disco",
+    "file": "/home/ofdouglas/Design/third_party/cmsis-device-f7/Source/Templates/gcc/startup_stm32f746xx.s",
+    "output": "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/build/startup_stm32f746xx.o",
+    "arguments": [
+      "arm-none-eabi-gcc",
+      "-DSTM32F746xx",
+      "-I/home/ofdouglas/Design/third_party/cmsis-device-f7/Include",
+      "-I/home/ofdouglas/Design/third_party/CMSIS_6/CMSIS/Core/Include",
+      "-mcpu=cortex-m7",
+      "-mthumb",
+      "-mfpu=fpv5-sp-d16",
+      "-mfloat-abi=hard",
+      "-x",
+      "assembler-with-cpp",
+      "-c",
+      "/home/ofdouglas/Design/third_party/cmsis-device-f7/Source/Templates/gcc/startup_stm32f746xx.s",
+      "-o",
+      "/home/ofdouglas/Design/tinkering/stm32/f746g-disco/build/startup_stm32f746xx.o"
+    ]
+  }
+]

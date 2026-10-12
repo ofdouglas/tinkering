@@ -1,0 +1,5 @@
+CompileFlags:
+  Add:
+    - -DSTM32F746xx
+    - -I../../../third_party/cmsis-device-f7/Include
+    - -I../../../third_party/CMSIS_6/CMSIS/Core/Include

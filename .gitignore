@@ -14,6 +14,7 @@
 *.log
 *.xml
 *.inx
+*.idx
 *..metadata
 *.tar.gz
 *.plugins
