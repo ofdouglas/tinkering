@@ -27,7 +27,6 @@ LDFLAGS := $(CPU_FLAGS) -T$(LINKER_SCRIPT) \
 
 OBJECTS := \
 	$(BUILD_DIR)/main.o \
-	$(BUILD_DIR)/system_stm32f7xx.o \
 	$(BUILD_DIR)/startup_stm32f746xx.o
 DEPS := $(OBJECTS:.o=.d)
 
@@ -55,11 +54,7 @@ $(BUILD_DIR)/main.o: main.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/system_stm32f7xx.o: $(DEVICE_DIR)/Source/Templates/system_stm32f7xx.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-$(BUILD_DIR)/startup_stm32f746xx.o: $(DEVICE_DIR)/Source/Templates/gcc/startup_stm32f746xx.s
+$(BUILD_DIR)/startup_stm32f746xx.o: startup_stm32f746xx.s
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -MMD -MP -c $< -o $@
 
@@ -79,6 +74,9 @@ gdbserver:
 
 gdb: $(BUILD_DIR)/$(TARGET).elf
 	$(GDB) $< -ex "target remote $(GDB_HOST):$(GDB_PORT)"
+
+serial:
+	picocom -b 19200 --imap lfcrlf /dev/ttyACM0
 
 clean:
 	rm -rf $(BUILD_DIR)
