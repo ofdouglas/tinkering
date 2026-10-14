@@ -1,5 +1,4 @@
-#ifndef BARE_METAL_TASK_H
-#define BARE_METAL_TASK_H
+#pragma once
 
 #include "hal/clock.h"
 
@@ -42,5 +41,3 @@ private:
 };
 
 } // namespace bare_metal
-
-#endif // BARE_METAL_TASK_H

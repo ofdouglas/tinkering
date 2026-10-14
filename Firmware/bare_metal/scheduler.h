@@ -1,5 +1,4 @@
-#ifndef BARE_METAL_SCHEDULER_H
-#define BARE_METAL_SCHEDULER_H
+#pragma once
 
 #include "bare_metal/task.h"
 
@@ -45,4 +44,3 @@ private:
     size_t num_tasks_{0U};
 };
 } // namespace bare_metal
-#endif // BARE_METAL_SCHEDULER_H

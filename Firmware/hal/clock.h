@@ -1,9 +1,7 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <chrono>
-
-#include "bsp/base_bsp.h"
 
 namespace hal {
 

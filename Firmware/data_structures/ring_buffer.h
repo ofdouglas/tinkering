@@ -4,6 +4,7 @@
  * @brief Ring buffer which is thread-safe for a single producer and a single consumer.
  */
  
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -54,6 +55,10 @@ public:
         }
     }
 
+    size_t available() const {
+        return buffer_.size() - 1U - size();
+    }
+
     bool enqueue(const T& item) {
         if (isFull()) {
             return false;
@@ -64,12 +69,29 @@ public:
     }
 
     bool enqueue(util::Span<const T> items) {
-        for (const auto& item : items) {
-            if (!enqueue(item)) {
-                return false;
-            }
+        if (items.size() == 0U) {
+            return true;
         }
-        return true;
+
+        const size_t num_to_enqueue{std::min(items.size(), available())};
+        if ((num_to_enqueue == 0U)) {
+            return false;
+        }
+
+        size_t writer{write_index_.load()};
+        const size_t copy_size_hi{std::min(num_to_enqueue, buffer_.size() - writer)};
+        const size_t copy_size_low{num_to_enqueue - copy_size_hi};
+
+        std::copy_n(items.data(), copy_size_hi, &buffer_[writer]);
+        std::copy_n(items.data() + copy_size_hi, copy_size_low, &buffer_[0U]);
+
+        writer += num_to_enqueue;
+        if (writer >= buffer_.size()) {
+            writer -= buffer_.size();
+        }
+        write_index_.store(writer);
+
+        return num_to_enqueue == items.size();
     }
 
     bool dequeue(T& item) {
@@ -90,6 +112,26 @@ public:
             i++;
         }
         return i;
+    }
+
+    // For DMA (use when starting a transfer)
+    util::Span<const T> readBulk() {
+        size_t reader{read_index_.load()};
+        const size_t writer{write_index_.load()};
+        const size_t upper_bound{writer >= reader ? writer : buffer_.size()};
+
+        util::Span<const T> result(&buffer_[reader], upper_bound - reader);
+        return result;
+    }
+
+    void discardBulk(size_t count) {
+        size_t reader{read_index_.load()};
+
+        reader += count;
+        if (reader >= buffer_.size()) {
+            reader -= buffer_.size();
+        }
+        read_index_.store(reader);
     }
 
     bool peek(T& item) const {
