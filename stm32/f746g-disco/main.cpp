@@ -12,6 +12,7 @@
 #include "logging/logging.h"
 #include "hal/clock.h"
 #include "hal/delay.h"
+#include "osal/critical_section.h"
 #include "util/span.h"
 
 std::atomic<uint32_t> sys_tick_count{};
@@ -232,6 +233,8 @@ const uint32_t kEthTxDes0Flags = EthDmaTxDescriptor::kTdes0_InterruptOnComplete 
                              // EthDmaTxDescriptor::kTdes0_ChecksumInsertion_1 
 
 EthDmaTxDescriptor* bsp_ethernet_tx_allocate() {
+  osal::RaiiCriticalSection cs{};
+
   uint32_t index = eth_buffer_free_index.load();
   if (index >= kNumEthTxBuffers) {
     LOG_ERROR() << "Ethernet TX buffer index out of range";
@@ -249,9 +252,7 @@ EthDmaTxDescriptor* bsp_ethernet_tx_allocate() {
 }  
 
 bool bsp_ethernet_send(util::Span<const uint8_t> payload) {
-  __disable_irq();
   EthDmaTxDescriptor* descriptor = bsp_ethernet_tx_allocate();
-  __enable_irq();
 
   if (descriptor == nullptr) {
     LOG_ERROR() << "Ethernet TX allocate failed";
@@ -435,9 +436,8 @@ void bsp_uart_send(util::Span<const uint8_t> payload) {
   uart_tx_buffer.enqueue(payload);
 
   // TODO: proper critical section
-  __disable_irq();
+  osal::RaiiCriticalSection cs{};
   bsp_uart_start_dma();
-  __enable_irq();
 }
 
 // 168 MHz Sysclk / AHB, 84 MHz APB2, 42 MHz APB1, from HSI 16 MHz

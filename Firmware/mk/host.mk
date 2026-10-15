@@ -11,6 +11,7 @@ include $(FIRMWARE_ROOT)/mk/gtest.mk
 
 CXX       ?= g++
 CXXFLAGS  ?= -std=c++17 -Wall -Wextra
+HOST_CPPFLAGS := -DOSAL_CRITICAL_SECTION_HOST
 INC       := -I$(FIRMWARE_ROOT)
 SIM_ARGS  ?=
 
@@ -34,7 +35,7 @@ require_module_ok:
 	@$(call require_module)
 
 $(BIN): $(SRCS) $(FW_HEADERS) $(GTEST_LIB_FILES) | $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) $(INC) $(GTEST_INC) -o $@ $(SRCS) $(GTEST_LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(HOST_CPPFLAGS) $(INC) $(GTEST_INC) -o $@ $(SRCS) $(GTEST_LDFLAGS)
 
 $(BIN_DIR):
 	mkdir -p $@

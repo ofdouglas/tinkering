@@ -19,5 +19,7 @@ bootloader_SRCS := \
 	$(HOST_TEST_SUPPORT_SRCS)
 bootloader_TEST := bootloader_test
 
-data_structures_SRCS := data_structures/test/ring_buffer_test.cpp
+data_structures_SRCS := \
+	data_structures/test/memory_pool_test.cpp \
+	data_structures/test/ring_buffer_test.cpp
 data_structures_TEST := data_structures_test
