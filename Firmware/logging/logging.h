@@ -90,6 +90,10 @@ public:
         return appendValue(radix_ == Radix::Decimal ? "%u" : "0x%X", value);
     }
 
+    LocalLogger& operator<<(uint16_t value) {
+        return appendValue(radix_ == Radix::Decimal ? "%u" : "0x%X", value);
+    }
+
     LocalLogger& operator<<(int32_t value) {
         return appendValue(radix_ == Radix::Decimal ? "%ld" : "0x%lX", value);
     }
