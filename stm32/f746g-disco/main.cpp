@@ -201,32 +201,15 @@ struct EthDmaTxDescriptor {
     tdes1_byte_counts = (tx_buf_size_2 << 16U) | tx_buf_size_1;
   }
 
+  bool isOwnedByDma() const {
+    return (tdes0_status_ctrl & EthDmaTxDescriptor::kTdes0_StatusOwn) != 0U;
+  }
+
   uint32_t tdes0_status_ctrl{};
   uint32_t tdes1_byte_counts{};
   uint8_t* tdes2_buffer_ptr{};
   EthDmaTxDescriptor* tdes3_next_ptr{};
 };
-
-// Add the node at the end of the singly-linked list
-void bsp_ethernet_tx_list_append(std::atomic<EthDmaTxDescriptor*>* list_head, EthDmaTxDescriptor* node) {
-  node->tdes3_next_ptr = nullptr;
-
-  if (list_head == nullptr) {
-    LOG_ERROR() << "nullptr";
-    return;
-  }
-
-  if (*list_head == nullptr) {
-    *list_head = node;
-    return;
-  }
-
-  EthDmaTxDescriptor* current = *list_head;
-  while (current->tdes3_next_ptr != nullptr) {
-    current = current->tdes3_next_ptr;
-  }
-  current->tdes3_next_ptr = node;
-}
 
 
 constexpr size_t kNumEthTxBuffers = 8U;
@@ -240,32 +223,36 @@ alignas(4) std::array<EthDmaTxDescriptor, kNumEthTxBuffers> eth_tx_descriptors;
 // Cache line size alignment (note: D-cache is not enabled yet)
 alignas(32) std::array<uint8_t[kEthTxBufferSize], kNumEthTxBuffers> eth_tx_buffers;
 
-// CPU-owned descriptors ready to be allocated
-std::atomic<EthDmaTxDescriptor*> eth_tx_free_list = nullptr;
-
-// DMA-owned descriptors, awaiting transmission
-std::atomic<EthDmaTxDescriptor*> eth_tx_pending_list = nullptr;
+std::atomic<uint32_t> eth_buffer_free_index{};
+std::atomic<uint32_t> eth_buffer_pending_index{};
 
 const uint32_t kEthTxDes0Flags = EthDmaTxDescriptor::kTdes0_InterruptOnComplete | 
-                             EthDmaTxDescriptor::kTdes0_LastSegment | EthDmaTxDescriptor::kTdes0_FirstSegment; 
-                             // EthDmaTxDescriptor::kTdes0_SecondAddressChained;
+                             EthDmaTxDescriptor::kTdes0_LastSegment | EthDmaTxDescriptor::kTdes0_FirstSegment |
+                             EthDmaTxDescriptor::kTdes0_SecondAddressChained;
                              // EthDmaTxDescriptor::kTdes0_ChecksumInsertion_1 
 
 EthDmaTxDescriptor* bsp_ethernet_tx_allocate() {
-  EthDmaTxDescriptor* result = nullptr;
-
-  __disable_irq();
-  if (eth_tx_free_list != nullptr) {
-    result = eth_tx_free_list;
-    eth_tx_free_list = eth_tx_free_list.load()->tdes3_next_ptr;
-    result->tdes3_next_ptr = nullptr;
+  uint32_t index = eth_buffer_free_index.load();
+  if (index >= kNumEthTxBuffers) {
+    LOG_ERROR() << "Ethernet TX buffer index out of range";
+    return nullptr;
   }
-  __enable_irq();
-  return result;
-}
+  uint32_t next_index = index + 1U;
+  if (next_index >= kNumEthTxBuffers) {
+    next_index = 0U;
+  }
+  if (eth_tx_descriptors[next_index].isOwnedByDma()) {
+    return nullptr; // Next buffer is owned by DMA
+  }
+  eth_buffer_free_index.store(next_index);
+  return &eth_tx_descriptors[index];
+}  
 
 bool bsp_ethernet_send(util::Span<const uint8_t> payload) {
+  __disable_irq();
   EthDmaTxDescriptor* descriptor = bsp_ethernet_tx_allocate();
+  __enable_irq();
+
   if (descriptor == nullptr) {
     LOG_ERROR() << "Ethernet TX allocate failed";
     return false;
@@ -275,24 +262,9 @@ bool bsp_ethernet_send(util::Span<const uint8_t> payload) {
   const size_t copy_size = std::min(kEthTxBufferSize, payload.size());
   descriptor->setBufferSizes(copy_size, 0U);
   memcpy(descriptor->tdes2_buffer_ptr, payload.data(), copy_size);
-  descriptor->tdes3_next_ptr = nullptr;
-  descriptor->tdes0_status_ctrl = kEthTxDes0Flags;
-
-  __disable_irq();
-  if (eth_tx_pending_list == nullptr) {
-    descriptor->tdes0_status_ctrl |= EthDmaTxDescriptor::kTdes0_TxEndOfRing;
-    descriptor->tdes0_status_ctrl |= EthDmaTxDescriptor::kTdes0_StatusOwn;
-    __DSB();
-    eth_tx_pending_list = descriptor;
-    ETH->DMATDLAR = reinterpret_cast<uint32_t>(descriptor);
-    ETH->DMAOMR |= ETH_DMAOMR_ST;
-  } else {
-    descriptor->tdes0_status_ctrl |= EthDmaTxDescriptor::kTdes0_StatusOwn;
-    __DSB();
-    bsp_ethernet_tx_list_append(&eth_tx_pending_list, descriptor);
-  }
+  __DMB();
+  descriptor->tdes0_status_ctrl |= EthDmaTxDescriptor::kTdes0_StatusOwn;
   ETH->DMATPDR = 0U;
-  __enable_irq();
 
   return true;
 }
@@ -312,29 +284,17 @@ void ETH_IRQHandler(void) {
   if ((status & ETH_DMASR_AIS) != 0U) {
     LOG_ERROR() << "[ETH TX] err_status = " << err_status << ", tx_state = " << tx_state
                 << (tx_underflow ? ", underflow" : "") << (tx_no_buffers ? ", no buffers" : "")
-                << (tx_jabber_timeout ? ", jabber timeout" : "");
+                << (tx_jabber_timeout ? ", jabber timeout" : "") << ", status = " << logging::Radix::Hexadecimal << status;
   }
 
   if (tx_finished) {
-    size_t num_reclaimed = 0U;
-    EthDmaTxDescriptor* descriptor = eth_tx_pending_list;
-
-    while (descriptor != nullptr) {
-      if ((descriptor->tdes0_status_ctrl & EthDmaTxDescriptor::kTdes0_StatusOwn) != 0U) {
-        break;
-      }
-
-      EthDmaTxDescriptor* freed_node = descriptor;
-      descriptor = descriptor->tdes3_next_ptr;
-      freed_node->tdes3_next_ptr = nullptr;
-
-      bsp_ethernet_tx_list_append(&eth_tx_free_list, freed_node);
-      num_reclaimed++;
+    uint32_t pending_index = eth_buffer_pending_index.load();
+    EthDmaTxDescriptor* descriptor = &eth_tx_descriptors[pending_index];
+    while ((pending_index != eth_buffer_free_index.load()) && (!descriptor->isOwnedByDma())) {
+      pending_index = (pending_index + 1U) % kNumEthTxBuffers;
+      descriptor = &eth_tx_descriptors[pending_index];
+      eth_buffer_pending_index.store(pending_index);
     }
-
-    if (num_reclaimed == 0U) {
-      LOG_ERROR() << "No descriptors reclaimed";
-    } 
   }
 
   ETH->DMASR = status | 0x1'E7FFU; // Clear all flags. TODO: only clear the ones we handled
@@ -356,9 +316,14 @@ void bsp_init_ethernet() {
 
   // Initialize DMA descriptors
   for (size_t i = 0U; i < kNumEthTxBuffers; i++) {
+    size_t next_index = (i == kNumEthTxBuffers - 1U) ? 0U : i + 1U;
+    eth_tx_descriptors[i].tdes0_status_ctrl = kEthTxDes0Flags;
+    eth_tx_descriptors[i].setBufferSizes(0U, 0U);
     eth_tx_descriptors[i].tdes2_buffer_ptr = eth_tx_buffers[i];
-    bsp_ethernet_tx_list_append(&eth_tx_free_list, &eth_tx_descriptors[i]);
+    eth_tx_descriptors[i].tdes3_next_ptr = &eth_tx_descriptors[next_index];
   }
+  ETH->DMATDLAR = reinterpret_cast<uint32_t>(eth_tx_descriptors.data());
+  ETH->DMAOMR |= ETH_DMAOMR_ST;
 
   // Verify the PHY is a LAN8742A.
   uint16_t phyId1 = bsp_eth_phy_read(kPhyAddress, Lan8742a::RegAddress::kPhyId1);
@@ -393,7 +358,7 @@ void bsp_init_ethernet() {
   ETH->DMABMR |= ETH_DMABMR_PBL_32Beat;
 
   // Enable all interrupts
-  ETH->DMAIER |= 0x0001'E7FF;
+  ETH->DMAIER |= ETH_DMAIER_NISE | ETH_DMAIER_TIE | ETH_DMAIER_AISE | ETH_DMAIER_FBEIE | ETH_DMAIER_TBUIE;
 
   // Enable Transmit (TODO: enable RX once DMA path is ready)
   ETH->MACCR |= ETH_MACCR_FES | ETH_MACCR_DM | ETH_MACCR_TE; // | ETH_MACCR_RE;
