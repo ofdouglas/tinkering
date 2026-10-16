@@ -9,7 +9,7 @@
 #include "bootloader/transport/transport_interface.h"
 
 #include "hal/clock.h"
-#include "hal/reset_interface.h"
+#include "hal/reset_manager_interface.h"
 #include "util/span.h"
 
 #include "interfaces/memory_interface.h"
@@ -28,7 +28,7 @@ public:
     kTransfer,
   };
 
-  Bootloader(util::Span<const Memory::Region> regions, TransportInterface& transport, hal::ResetInterface& reset) noexcept;
+  Bootloader(util::Span<const Memory::Region> regions, TransportInterface& transport, hal::ResetManagerInterface& reset) noexcept;
 
   bool initialize() noexcept;
 
@@ -106,7 +106,7 @@ private:
 
     const util::Span<const Memory::Region> regions_;
     TransportInterface& transport_;
-    hal::ResetInterface& reset_;
+    hal::ResetManagerInterface& reset_;
 
     State       state_{State::kIdle};
     PreparedMemoryContext prepared_{};

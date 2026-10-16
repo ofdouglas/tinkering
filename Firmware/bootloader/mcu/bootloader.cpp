@@ -20,7 +20,7 @@ using data_id::ImageStatus1;
 using data_id::isValidDataIdentifier;
 
 Bootloader::Bootloader(util::Span<const Memory::Region> regions, TransportInterface& transport,
-                       hal::ResetInterface& reset) noexcept
+                       hal::ResetManagerInterface& reset) noexcept
     : regions_(regions),
       transport_(transport),
       reset_(reset) {}

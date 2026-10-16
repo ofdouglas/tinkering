@@ -1,7 +1,7 @@
 #pragma once
 
 #include "bootloader/transport/transport_interface.h"
-#include "hal/reset_interface.h"
+#include "hal/reset_manager_interface.h"
 #include "interfaces/memory_interface.h"
 
 #include <array>
@@ -61,7 +61,7 @@ private:
     std::vector<CommandPacket> sent_commands_{};
 };
 
-class MockReset : public hal::ResetInterface {
+class MockReset : public hal::ResetManagerInterface {
 public:
     void reset() noexcept override { reset_count_++; }
 

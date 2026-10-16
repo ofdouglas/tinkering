@@ -31,6 +31,10 @@ LDFLAGS := $(CPU_FLAGS) -T$(LINKER_SCRIPT) \
 
 OBJECTS := \
 	$(BUILD_DIR)/main.o \
+	$(BUILD_DIR)/bsp.o \
+	$(BUILD_DIR)/ethernet.o \
+	$(BUILD_DIR)/uart.o \
+	$(BUILD_DIR)/watchdog.o \
 	$(BUILD_DIR)/logging/log.o \
 	$(BUILD_DIR)/startup_stm32f746xx.o
 DEPS := $(OBJECTS:.o=.d)
@@ -56,6 +60,22 @@ $(BUILD_DIR)/$(TARGET).hex: $(BUILD_DIR)/$(TARGET).elf
 	$(OBJCOPY) -O ihex $< $@
 
 $(BUILD_DIR)/main.o: main.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/bsp.o: bsp.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/ethernet.o: ethernet.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/uart.o: uart.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/watchdog.o: watchdog.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
@@ -85,7 +105,7 @@ gdb: $(BUILD_DIR)/$(TARGET).elf
 	$(GDB) $< -ex "target remote $(GDB_HOST):$(GDB_PORT)"
 
 serial:
-	picocom -b 19200 --imap lfcrlf /dev/ttyACM0
+	picocom -b 1000000 --imap lfcrlf /dev/ttyACM0
 
 clean:
 	rm -rf $(BUILD_DIR)

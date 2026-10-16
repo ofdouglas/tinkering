@@ -14,7 +14,7 @@
 
 #include "bsp/base_bsp.h"
 #include "logging/logging.h"
-#include "hal/reset_interface.h"
+#include "hal/reset_manager_interface.h"
 #include "interfaces/memory_interface.h"
 #include "util/span.h"
 
@@ -43,7 +43,7 @@ public:
     GPIO_TypeDef* led_gpio = BSP_LED_GPIO_Port;
     uint16_t led_pin = BSP_LED_Pin;
 
-    class SystemReset : public hal::ResetInterface {
+    class SystemReset : public hal::ResetManagerInterface {
     public:
         void reset() noexcept override;
     };
