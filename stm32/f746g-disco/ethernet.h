@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "data_structures/object_pool.h"
 #include "util/span.h"
 
 /**
@@ -19,6 +20,16 @@
  */
 class Ethernet {
 public:
+    enum class State : uint8_t { kUninitialized, kAutoNegotiation, kLinkUp, kLinkDown, kError };
+
+    static constexpr size_t kNumTxBuffers{8U};
+    static constexpr size_t kMaxEthernetFrameSize{1518U};
+
+    using PacketPool = data_structures::StaticBufferPool<kMaxEthernetFrameSize, kNumTxBuffers,
+                                                         __SCB_DCACHE_LINE_SIZE>;
+    using PacketBuffer = typename PacketPool::Object;
+    using PacketBufferHandle = typename PacketPool::Handle;
+
     Ethernet() noexcept = default;
 
     Ethernet(const Ethernet &) = delete;
@@ -28,10 +39,22 @@ public:
 
     /**
      * @brief Initializes the Ethernet MAC, transmit DMA ring, PHY, and interrupt.
-     *
-     * This function blocks until PHY auto-negotiation completes.
+     * @note This function returns before the link is configured and up.
      */
     void init() noexcept;
+
+    /**
+     * @brief Manages the Ethernet link, (auto-negotiation, link status, etc.)
+     * @note  This function is non-blocking, and should be polled periodically.
+     * @return The new state of the link management state machine.
+     */
+    State runLinkManagement() noexcept;
+
+    /**
+     * @brief Gets the current state of the link management state machine.
+     * @return The current state of the link management state machine.
+     */
+    State getState() const noexcept;
 
     /**
      * @brief Copies and queues one Ethernet frame for transmission.
@@ -41,10 +64,12 @@ public:
      * available.
      * @pre init() completed successfully.
      */
-    bool send(util::Span<const uint8_t> payload) noexcept;
+    bool send(PacketBufferHandle &&handle) noexcept;
 
     /** @brief Dispatches the hardware interrupt to the initialized instance. */
     static void handleInterrupt() noexcept;
+
+    PacketBufferHandle allocatePacketBuffer() noexcept;
 
 private:
     struct Lan8742a {
@@ -119,11 +144,13 @@ private:
         uint32_t byte_counts{};
         uint8_t *buffer_ptr{};
         EthDmaTxDescriptor *next_ptr{};
+
+        // Not part of the descriptor read by DMA, but used to track the buffer
+        // index.
+        size_t index{};
     };
 
     static constexpr uint8_t kPhyAddress{0U};
-    static constexpr size_t kNumTxBuffers{8U};
-    static constexpr size_t kMaxEthernetFrameSize{1518U};
     static constexpr uint32_t kTxDescriptorFlags{
         EthDmaTxDescriptor::kInterruptOnComplete | EthDmaTxDescriptor::kLastSegment |
         EthDmaTxDescriptor::kFirstSegment | EthDmaTxDescriptor::kSecondAddressChained};
@@ -132,18 +159,26 @@ private:
                             bool is_write) noexcept;
     uint16_t phyRead(uint8_t phy_address, uint8_t mii_register) noexcept;
     void phyWrite(uint8_t phy_address, uint8_t mii_register, uint16_t data) noexcept;
+    bool phyVerifyPhyId() noexcept;
+
+    bool pollAutoNegotiationComplete() noexcept;
+    bool verifyLinkConfiguration() noexcept;
+    bool pollLinkStatus() noexcept;
+
     EthDmaTxDescriptor *allocateTxDescriptor() noexcept;
     void handleInterruptInstance() noexcept;
+
+    void enableTxRx() noexcept;
+    void disableTxRx() noexcept;
+    void softwareResetMac() noexcept;
 
     static Ethernet *instance_;
 
     // DMA descriptors require word alignment.
     alignas(4) std::array<EthDmaTxDescriptor, kNumTxBuffers> tx_descriptors_{};
-
-    // Buffers use cache-line alignment in preparation for enabling the data cache.
-    alignas(__SCB_DCACHE_LINE_SIZE)
-        std::array<std::array<uint8_t, kMaxEthernetFrameSize>, kNumTxBuffers> tx_buffers_{};
-
+    std::array<PacketBufferHandle, kNumTxBuffers> packet_buffer_handles_{};
+    PacketPool packet_pool_{};
     std::atomic<uint32_t> free_index_{};
     std::atomic<uint32_t> pending_index_{};
+    std::atomic<State> state_{State::kUninitialized};
 };

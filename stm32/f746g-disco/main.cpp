@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 
 #include "stm32f746xx.h"
 
@@ -43,14 +44,22 @@ public:
     void tick() noexcept override {
         constexpr size_t kPayloadSize = 64U;
 
-        EthernetPacket<kPayloadSize> packet{};
-        packet.ether_type = kPayloadSize;
-        for (size_t i = 0U; i < kPayloadSize; i++) {
-            packet.payload[i] = static_cast<uint8_t>(i & 0xFFU);
+        if (ethernet_.getState() != Ethernet::State::kLinkUp) {
+            return;
         }
 
-        const uint8_t *bytes = reinterpret_cast<uint8_t *>(&packet);
-        ethernet_.send(util::Span(bytes, sizeof(packet)));
+        auto packet_handle = ethernet_.allocatePacketBuffer();
+        if (packet_handle == nullptr) {
+            LOG_ERROR() << "Ethernet TX buffer allocation failed";
+            return;
+        }
+
+        packet_handle->length = kPayloadSize;
+        for (size_t i = 0U; i < kPayloadSize; i++) {
+            packet_handle->bytes[i] = static_cast<uint8_t>(i & 0xFFU);
+        }
+
+        ethernet_.send(std::move(packet_handle));
 
         tick_count_++;
         if (tick_count_ >= 10U) {
@@ -64,39 +73,68 @@ private:
     uint32_t tick_count_{};
 };
 
+class EthernetLinkManager : public bare_metal::PeriodicTask {
+public:
+    explicit EthernetLinkManager(Ethernet &ethernet)
+        : bare_metal::PeriodicTask(std::chrono::milliseconds(50U)), ethernet_{ethernet} {}
+
+    void tick() noexcept override {
+        const Ethernet::State new_state{ethernet_.runLinkManagement()};
+
+        if ((new_state == Ethernet::State::kError) && (new_state != prev_state_)) {
+            LOG_ERROR() << "Ethernet entered error state";
+        }
+        prev_state_ = new_state;
+    }
+
+private:
+    Ethernet &ethernet_;
+    Ethernet::State prev_state_{};
+};
+
+// TODO: add a terminate reason enum.
+// TODO: make this a common library? needs platform-specific IRQ disable.
+[[noreturn]] void mcuTerminate() noexcept {
+    __disable_irq();
+
+    // TODO: record crash dump.
+
+    // Immediate reset, because the watchdog might not be enabled.
+    NVIC_SystemReset();
+    __builtin_unreachable();
+}
+
 int main() {
-    Bsp bsp{};
+    static Bsp bsp{};
     static Ethernet ethernet{};
 
-    // Tasks
+    std::set_terminate(mcuTerminate);
+
+    // Tasks. TODO: organize into an application class, store in .bss section.
     LedBlinky led_blinky{};
     EthernetTest eth_task{ethernet};
+    EthernetLinkManager link_manager{ethernet};
     UptimeLogger uptime_logger{};
 
     bsp.init();
+    ethernet.init();
 
     logging::setLogSink(bsp.getUart());
     bsp.getResetManager().logResetCause();
     __enable_irq();
 
-    {
-        const auto start = hal::SchedulerClock::now();
-        ethernet.init();
-        const auto diff = hal::SchedulerClock::now() - start;
-        LOG_INFO() << "Ethernet init duration: " << diff;
-    }
-    // TODO: add PWM initialization to Bsp.
-
     led_blinky.start();
     uptime_logger.start();
     eth_task.start();
+    link_manager.start();
 
     for (;;) {
         led_blinky.poll();
         uptime_logger.poll();
         eth_task.poll();
+        link_manager.poll();
     }
 
-    while (true) {
-    }
+    std::terminate();
+    __builtin_unreachable();
 }

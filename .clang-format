@@ -5,3 +5,7 @@ SortIncludes: Never
 IndentWidth: 4
 IndentAccessModifiers: false
 AccessModifierOffset: -4
+BraceWrapping:
+  AfterClass: false
+  AfterStruct: false
+  SplitEmptyRecord: false
