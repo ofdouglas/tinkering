@@ -13,9 +13,9 @@
 #include "stm32f7xx_hal_gpio.h"
 
 #include "bsp/base_bsp.h"
-#include "logging/logging.h"
 #include "hal/reset_manager_interface.h"
 #include "interfaces/memory_interface.h"
+#include "interfaces/stream_interface.h"
 #include "util/span.h"
 
 #include <array>
@@ -74,11 +74,12 @@ public:
 private:
     static constexpr uint8_t kUart1IrqPriority{3U};
 
-    class UartLogSink : public logging::LogSink {
+    class UartLogSink : public Stream::StreamInterface {
     public:
         explicit UartLogSink(UART_HandleTypeDef &huart);
         ~UartLogSink() override;
-        bool write(util::Span<const uint8_t> message) override;
+        size_t read(util::Span<uint8_t> data) override;
+        size_t write(util::Span<const uint8_t> data) override;
     private:
         UART_HandleTypeDef &huart_;
     };

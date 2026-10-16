@@ -8,6 +8,7 @@
 #include "bsp.h"
 #include "bsp/base_bsp.h"
 #include "hal/clock.h"
+#include "logging/logging.h"
 
 #include "stm32f746xx.h"
 
@@ -25,9 +26,16 @@ Bsp::UartLogSink::UartLogSink(UART_HandleTypeDef &huart)
 
 Bsp::UartLogSink::~UartLogSink() {}
 
+size_t Bsp::UartLogSink::read(util::Span<uint8_t> data) {
+    (void)data;
+    return 0U;
+}
+
 // TODO: buffer any writes which occur before the UART is initialized
-bool Bsp::UartLogSink::write(util::Span<const uint8_t> message) {
-    return HAL_UART_Transmit(&huart_, const_cast<uint8_t*>(message.data()), static_cast<uint16_t>(message.size()), 1000) == HAL_OK;
+size_t Bsp::UartLogSink::write(util::Span<const uint8_t> data) {
+    const HAL_StatusTypeDef result = HAL_UART_Transmit(
+        &huart_, const_cast<uint8_t*>(data.data()), static_cast<uint16_t>(data.size()), 1000);
+    return result == HAL_OK ? data.size() : 0U;
 }
 
 

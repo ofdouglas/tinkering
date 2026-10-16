@@ -63,6 +63,8 @@ private:
 
 class MockReset : public hal::ResetManagerInterface {
 public:
+    void readResetCause() noexcept override {}
+    void logResetCause() noexcept override {}
     void reset() noexcept override { reset_count_++; }
 
     uint32_t resetCount() const noexcept { return reset_count_; }

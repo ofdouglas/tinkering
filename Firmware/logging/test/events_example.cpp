@@ -54,10 +54,15 @@ bool logEvent(EventId eventId) {
     return false;
 }
 
-class StdoutLogSink : public LogSink {
+class StdoutLogSink : public Stream::StreamInterface {
 public:
-    bool write(util::Span<const uint8_t> message) override {
-        return std::fwrite(message.data(), 1U, message.size(), stdout) == message.size();
+    size_t read(util::Span<uint8_t> data) override {
+        (void)data;
+        return 0U;
+    }
+
+    size_t write(util::Span<const uint8_t> data) override {
+        return std::fwrite(data.data(), 1U, data.size(), stdout);
     }
 };
 

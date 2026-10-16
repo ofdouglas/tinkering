@@ -7,6 +7,7 @@ public:
     virtual ~ResetManagerInterface() = default;
 
     // Read the reset cause register and store the value.
+    // This should only be called once. Only the first value will be saved.
     virtual void readResetCause() noexcept = 0;
 
     // Log the reset cause to the console.
@@ -17,4 +18,4 @@ public:
     virtual void reset() noexcept = 0;
 };
 
-} // namespace hal
+}  // namespace hal

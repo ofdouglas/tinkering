@@ -1,4 +1,7 @@
 BasedOnStyle: Google
 AllowShortFunctionsOnASingleLine: Empty
 ColumnLimit: 100
-SortIncludes: False
+SortIncludes: Never
+IndentWidth: 4
+IndentAccessModifiers: false
+AccessModifierOffset: -4

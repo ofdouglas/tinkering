@@ -6,18 +6,18 @@
 
 namespace logging {
 
-LogSink* logSink_{nullptr};
+Stream::StreamInterface* log_sink_{nullptr};
 
-bool setLogSink(LogSink* logSink) {
-    logSink_ = logSink;
+bool setLogSink(Stream::StreamInterface* log_sink) {
+    log_sink_ = log_sink;
     return true;
 }
 
 bool writeToLogSink(util::Span<const uint8_t> message) {
-    if (logSink_ == nullptr) {
+    if (log_sink_ == nullptr) {
         return false;
     }
-    return logSink_->write(message);
+    return log_sink_->write(message) == message.size();
 }
 
 const char* fileBasename(const char* path) {
@@ -52,7 +52,7 @@ int formatLog(char* buf, size_t buf_size, const char* file, uint32_t line, const
 }
 
 bool transmitFormatted(const char* buf, size_t buf_size, int n) {
-    if (n <= 0 || logSink_ == nullptr) {
+    if (n <= 0 || log_sink_ == nullptr) {
         return false;
     }
 
@@ -77,7 +77,7 @@ bool writeMessage(const char* file, uint32_t line, Level level, util::StaticStri
 namespace mock {
 
 void reset() noexcept {
-    logSink_ = nullptr;
+    log_sink_ = nullptr;
 }
 
 } // namespace mock

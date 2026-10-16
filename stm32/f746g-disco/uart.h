@@ -4,11 +4,11 @@
 #include <cstdint>
 
 #include "data_structures/ring_buffer.h"
-#include "logging/logging.h"
+#include "interfaces/stream_interface.h"
 #include "stm32f746xx.h"
 #include "util/span.h"
 
-class Uart : public logging::LogSink {
+class Uart : public Stream::StreamInterface {
  public:
   Uart() noexcept = default;
   ~Uart() noexcept override = default;
@@ -19,7 +19,8 @@ class Uart : public logging::LogSink {
   Uart &operator=(Uart &&) noexcept = delete;
 
   void init() noexcept;
-  bool write(util::Span<const uint8_t> message) noexcept override;
+  size_t read(util::Span<uint8_t> data) noexcept override;
+  size_t write(util::Span<const uint8_t> data) noexcept override;
   void handleInterrupt() noexcept;
 
  private:

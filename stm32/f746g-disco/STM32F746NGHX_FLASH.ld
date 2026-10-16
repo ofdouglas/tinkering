@@ -1,7 +1,7 @@
 ENTRY(Reset_Handler)
 
-_Min_Heap_Size = 0;
-_Min_Stack_Size = 0x400;
+Heap_Size = 0;
+Stack_Size = 8 * 1024;
 
 MEMORY
 {
@@ -110,8 +110,8 @@ SECTIONS
     . = ALIGN(8);
     PROVIDE(end = .);
     PROVIDE(_end = .);
-    . += _Min_Heap_Size;
-    . += _Min_Stack_Size;
+    . += Heap_Size;
+    . += Stack_Size;
     . = ALIGN(8);
   } > RAM
 

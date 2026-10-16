@@ -10,10 +10,9 @@
 #include <limits>
 #include <type_traits>
 
-
+#include "interfaces/stream_interface.h"
 #include "util/span.h"
 #include "util/static_string.h"
-
 
 namespace logging {
 
@@ -30,20 +29,7 @@ enum class Radix : uint8_t {
   Hexadecimal,
 };
 
-/**
- * @brief   Logging sink interface
- * @details This interface is used to write log messages to a sink.
- */
-class LogSink {
-public:
-  virtual ~LogSink() = default;
-
-  virtual bool write(util::Span<const uint8_t> message) = 0;
-  // virtual bool write(const char* file, uint32_t line, Level level,
-  // util::StaticString<> message) = 0;
-};
-
-bool setLogSink(LogSink *logSink);
+bool setLogSink(Stream::StreamInterface *log_sink);
 
 // TODO: clean up naming
 bool writeToLogSink(util::Span<const uint8_t> message);
