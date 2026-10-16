@@ -6,11 +6,8 @@
 #include "bare_metal/task.h"
 #include "bsp.h"
 #include "ethernet.h"
-#include "hal/clock.h"
 #include "hal/reset_manager_interface.h"
 #include "logging/logging.h"
-#include "uart.h"
-#include "util/span.h"
 
 class LedBlinky : public bare_metal::PeriodicTask {
 public:
@@ -26,7 +23,7 @@ public:
     UptimeLogger() : bare_metal::PeriodicTask(std::chrono::milliseconds(2000U)) {}
 
     void tick() noexcept override {
-        LOG_INFO() << "Uptime ms: " << hal::SchedulerClock::now().time_since_epoch().count();
+        LOG_INFO() << "Uptime: " << hal::SchedulerClock::now();
     }
 };
 
@@ -82,7 +79,12 @@ int main() {
     bsp.getResetManager().logResetCause();
     __enable_irq();
 
-    ethernet.init();
+    {
+        const auto start = hal::SchedulerClock::now();
+        ethernet.init();
+        const auto diff = hal::SchedulerClock::now() - start;
+        LOG_INFO() << "Ethernet init duration: " << diff;
+    }
     // TODO: add PWM initialization to Bsp.
 
     led_blinky.start();

@@ -141,7 +141,8 @@ private:
     alignas(4) std::array<EthDmaTxDescriptor, kNumTxBuffers> tx_descriptors_{};
 
     // Buffers use cache-line alignment in preparation for enabling the data cache.
-    alignas(32) std::array<std::array<uint8_t, kMaxEthernetFrameSize>, kNumTxBuffers> tx_buffers_{};
+    alignas(__SCB_DCACHE_LINE_SIZE)
+        std::array<std::array<uint8_t, kMaxEthernetFrameSize>, kNumTxBuffers> tx_buffers_{};
 
     std::atomic<uint32_t> free_index_{};
     std::atomic<uint32_t> pending_index_{};

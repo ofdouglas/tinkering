@@ -5,21 +5,23 @@
 
 #include <gtest/gtest.h>
 
-#include "data_structures/memory_pool.h"
+#include "data_structures/object_pool.h"
 
 namespace {
 
 /*
- * Test plan (MemoryPool<kChunkBufferSize, kNumChunks, kChunkAlignment>)
+ * Test plan (ObjectPool<T, kNumItems, kAlignment>, MemoryPool alias, StaticBuffer)
  *
  * Happy path:
  *   - Construction exposes all configured chunks as free
- *   - Allocation returns writable, distinct buffers and decrements the count
- *   - Freeing buffers restores capacity without corrupting live buffers
- *   - A freed buffer can be allocated again
+ *   - Allocation returns writable, distinct objects and decrements the count
+ *   - Destroying a handle restores capacity without corrupting live objects
+ *   - A released object can be allocated again
+ *   - ObjectPool stores StaticBuffer with independent payload and length
+ *   - MemoryPool is ObjectPool of a byte array
  *
  * Expected errors:
- *   - Allocation from an exhausted pool returns nullptr without changing state
+ *   - Allocation from an exhausted pool returns an empty handle without changing state
  *
  * Edge cases / boundary values:
  *   - A one-byte, one-chunk pool supports allocation, exhaustion, and reuse
@@ -47,7 +49,7 @@ TEST_F(MemoryPoolTest, InitiallyAllChunksAreFree) {
 
 // Verifies allocation returns writable, distinct buffers and updates the free count.
 TEST_F(MemoryPoolTest, AllocationsAreDistinctAndWritable) {
-    std::array<TestPool::Buffer*, kCapacity> buffers{};
+    std::array<TestPool::Handle, kCapacity> buffers{};
 
     for (size_t i{0U}; i < buffers.size(); ++i) {
         buffers[i] = pool_.allocate();
@@ -56,7 +58,7 @@ TEST_F(MemoryPoolTest, AllocationsAreDistinctAndWritable) {
 
         buffers[i]->fill(static_cast<uint8_t>(i + 1U));
         for (size_t j{0U}; j < i; ++j) {
-            EXPECT_NE(buffers[j], buffers[i]);
+            EXPECT_NE(buffers[j].get(), buffers[i].get());
         }
     }
 
@@ -69,8 +71,10 @@ TEST_F(MemoryPoolTest, AllocationsAreDistinctAndWritable) {
 
 // Verifies allocation from an exhausted pool fails without changing its state.
 TEST_F(MemoryPoolTest, AllocateWhenExhaustedReturnsNull) {
+    std::array<TestPool::Handle, kCapacity> buffers{};
     for (size_t i{0U}; i < kCapacity; ++i) {
-        ASSERT_NE(nullptr, pool_.allocate());
+        buffers[i] = pool_.allocate();
+        ASSERT_NE(nullptr, buffers[i]);
     }
 
     EXPECT_EQ(0U, pool_.numChunksFree());
@@ -79,15 +83,15 @@ TEST_F(MemoryPoolTest, AllocateWhenExhaustedReturnsNull) {
     EXPECT_EQ(0U, pool_.numChunksFree());
 }
 
-// Verifies freeing a buffer restores one slot while preserving another live buffer.
-TEST_F(MemoryPoolTest, FreeRestoresCapacityAndPreservesLiveBuffer) {
-    TestPool::Buffer* const first{pool_.allocate()};
-    TestPool::Buffer* const second{pool_.allocate()};
+// Verifies destroying a handle restores one slot while preserving another live buffer.
+TEST_F(MemoryPoolTest, HandleDestructorRestoresCapacityAndPreservesLiveBuffer) {
+    TestPool::Handle first{pool_.allocate()};
+    TestPool::Handle second{pool_.allocate()};
     ASSERT_NE(nullptr, first);
     ASSERT_NE(nullptr, second);
     second->fill(0xA5U);
 
-    pool_.free(first);
+    first.reset();
 
     EXPECT_EQ(kCapacity - 1U, pool_.numChunksFree());
     for (uint8_t byte : *second) {
@@ -95,28 +99,28 @@ TEST_F(MemoryPoolTest, FreeRestoresCapacityAndPreservesLiveBuffer) {
     }
 }
 
-// Verifies the most recently freed storage is available for a later allocation.
-TEST_F(MemoryPoolTest, FreedBufferCanBeAllocatedAgain) {
-    TestPool::Buffer* const original{pool_.allocate()};
+// Verifies the most recently released storage is available for a later allocation.
+TEST_F(MemoryPoolTest, ReleasedBufferCanBeAllocatedAgain) {
+    TestPool::Handle original{pool_.allocate()};
     ASSERT_NE(nullptr, original);
+    TestPool::Object* const original_ptr{original.get()};
 
-    pool_.free(original);
-    TestPool::Buffer* const reused{pool_.allocate()};
+    original.reset();
+    TestPool::Handle reused{pool_.allocate()};
 
-    EXPECT_EQ(original, reused);
+    EXPECT_EQ(original_ptr, reused.get());
     EXPECT_EQ(kCapacity - 1U, pool_.numChunksFree());
 }
 
-// Verifies freeing all allocated buffers restores the pool to full capacity.
-TEST_F(MemoryPoolTest, FreeingAllBuffersRestoresFullCapacity) {
-    std::array<TestPool::Buffer*, kCapacity> buffers{};
-    for (TestPool::Buffer*& buffer : buffers) {
-        buffer = pool_.allocate();
-        ASSERT_NE(nullptr, buffer);
-    }
-
-    for (TestPool::Buffer* buffer : buffers) {
-        pool_.free(buffer);
+// Verifies destroying all allocated handles restores the pool to full capacity.
+TEST_F(MemoryPoolTest, DestroyingAllHandlesRestoresFullCapacity) {
+    {
+        std::array<TestPool::Handle, kCapacity> buffers{};
+        for (TestPool::Handle& buffer : buffers) {
+            buffer = pool_.allocate();
+            ASSERT_NE(nullptr, buffer);
+        }
+        EXPECT_EQ(0U, pool_.numChunksFree());
     }
 
     EXPECT_EQ(kCapacity, pool_.numChunksFree());
@@ -127,13 +131,13 @@ TEST(MemoryPoolBoundaryTest, SingleByteSingleChunk) {
     using SingleChunkPool = data_structures::MemoryPool<1U, 1U>;
     SingleChunkPool pool;
 
-    SingleChunkPool::Buffer* const buffer{pool.allocate()};
+    SingleChunkPool::Handle buffer{pool.allocate()};
     ASSERT_NE(nullptr, buffer);
     (*buffer)[0] = 0x5AU;
     EXPECT_EQ(0x5AU, (*buffer)[0]);
     EXPECT_EQ(nullptr, pool.allocate());
 
-    pool.free(buffer);
+    buffer.reset();
     EXPECT_EQ(1U, pool.numChunksFree());
     EXPECT_NE(nullptr, pool.allocate());
 }
@@ -150,11 +154,13 @@ TEST(MemoryPoolBoundaryTest, ZeroChunksRemainEmpty) {
 TEST(MemoryPoolAlignmentTest, ExplicitAlignmentIsHonored) {
     constexpr size_t kAlignment{64U};
     data_structures::MemoryPool<3U, 3U, kAlignment> pool;
+    using Pool = data_structures::MemoryPool<3U, 3U, kAlignment>;
+    std::array<Pool::Handle, 3U> buffers{};
 
-    for (size_t i{0U}; i < 3U; ++i) {
-        const auto* const buffer{pool.allocate()};
-        ASSERT_NE(nullptr, buffer);
-        const auto address{reinterpret_cast<std::uintptr_t>(buffer)};
+    for (size_t i{0U}; i < buffers.size(); ++i) {
+        buffers[i] = pool.allocate();
+        ASSERT_NE(nullptr, buffers[i]);
+        const auto address{reinterpret_cast<std::uintptr_t>(buffers[i].get())};
         EXPECT_EQ(0U, address % kAlignment);
     }
 }
@@ -164,14 +170,14 @@ TEST(MemoryPoolStressTest, RepeatedAllocateAndFreeCycles) {
     data_structures::MemoryPool<16U, 2U> pool;
 
     for (size_t cycle{0U}; cycle < 100U; ++cycle) {
-        auto* const first{pool.allocate()};
-        auto* const second{pool.allocate()};
+        auto first{pool.allocate()};
+        auto second{pool.allocate()};
         ASSERT_NE(nullptr, first) << "cycle=" << cycle;
         ASSERT_NE(nullptr, second) << "cycle=" << cycle;
         EXPECT_EQ(nullptr, pool.allocate()) << "cycle=" << cycle;
 
-        pool.free(first);
-        pool.free(second);
+        first.reset();
+        second.reset();
         EXPECT_EQ(2U, pool.numChunksFree()) << "cycle=" << cycle;
     }
 }
@@ -182,6 +188,41 @@ TEST(MemoryPoolTypeTraitsTest, CopyAndMoveAreDisabled) {
     EXPECT_FALSE(std::is_copy_assignable<TestPool>::value);
     EXPECT_FALSE(std::is_move_constructible<TestPool>::value);
     EXPECT_FALSE(std::is_move_assignable<TestPool>::value);
+}
+
+// Verifies MemoryPool remains a byte-array specialization of ObjectPool.
+TEST(MemoryPoolAliasTest, IsObjectPoolOfByteArray) {
+    using Expected =
+        data_structures::ObjectPool<std::array<uint8_t, kBufferSize>, kCapacity, sizeof(void*)>;
+    static_assert(std::is_same<TestPool, Expected>::value, "");
+    EXPECT_TRUE((std::is_same<TestPool::Object, std::array<uint8_t, kBufferSize>>::value));
+}
+
+using StaticBufferPool = data_structures::ObjectPool<data_structures::StaticBuffer<16U>, kCapacity>;
+static_assert(std::is_trivial<data_structures::StaticBuffer<16U>>::value, "");
+
+// Verifies ObjectPool can store a StaticBuffer with independent payload and length.
+TEST(ObjectPoolTest, AllocatesWritableStaticBuffers) {
+    StaticBufferPool pool;
+    StaticBufferPool::Handle first{pool.allocate()};
+    StaticBufferPool::Handle second{pool.allocate()};
+    ASSERT_NE(nullptr, first);
+    ASSERT_NE(nullptr, second);
+    EXPECT_EQ(kCapacity - 2U, pool.numChunksFree());
+
+    first->length = 3U;
+    first->bytes[0] = 0x11U;
+    first->bytes[1] = 0x22U;
+    first->bytes[2] = 0x33U;
+    second->length = 1U;
+    second->bytes[0] = 0xAAU;
+
+    EXPECT_EQ(3U, first->length);
+    EXPECT_EQ(0x11U, first->bytes[0]);
+    EXPECT_EQ(0x22U, first->bytes[1]);
+    EXPECT_EQ(0x33U, first->bytes[2]);
+    EXPECT_EQ(1U, second->length);
+    EXPECT_EQ(0xAAU, second->bytes[0]);
 }
 
 } // namespace

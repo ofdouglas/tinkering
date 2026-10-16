@@ -4,10 +4,12 @@
  * @brief Embedded C++ logging API
  */
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <inttypes.h>
 #include <limits>
+#include <ratio>
 #include <type_traits>
 
 #include "interfaces/stream_interface.h"
@@ -128,6 +130,32 @@ public:
       appendValue("%02X", d);
     }
     return *this;
+  }
+
+  /**
+   * @brief Prints a duration as its native count plus a unit suffix.
+   */
+  template <typename Rep, typename Period>
+  LocalLogger &operator<<(std::chrono::duration<Rep, Period> duration) {
+    *this << duration.count();
+    if constexpr (std::ratio_equal_v<Period, std::milli>) {
+      buffer_.append(" ms");
+    } else if constexpr (std::ratio_equal_v<Period, std::micro>) {
+      buffer_.append(" us");
+    } else if constexpr (std::ratio_equal_v<Period, std::nano>) {
+      buffer_.append(" ns");
+    } else if constexpr (std::ratio_equal_v<Period, std::ratio<1>>) {
+      buffer_.append(" s");
+    }
+    return *this;
+  }
+
+  /**
+   * @brief Prints a time point as its duration since epoch.
+   */
+  template <typename Clock, typename Duration>
+  LocalLogger &operator<<(std::chrono::time_point<Clock, Duration> time_point) {
+    return *this << time_point.time_since_epoch();
   }
 
 private:
