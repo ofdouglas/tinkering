@@ -2,7 +2,7 @@
 
 #include "stm32f746xx.h"
 
-void Watchdog::init() noexcept {
+void Watchdog::start() noexcept {
     IWDG->KR = 0x5555U;
     IWDG->KR = 0xCCCCU;
 }

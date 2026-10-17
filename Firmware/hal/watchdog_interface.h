@@ -14,10 +14,10 @@ public:
     virtual ~WatchdogInterface() = default;
 
     /** @brief Starts the watchdog. */
-    virtual void init() noexcept = 0;
+    virtual void start() noexcept = 0;
 
     /** @brief Services the watchdog to prevent a reset. */
     virtual void kick() noexcept = 0;
 };
 
-} // namespace hal
+}  // namespace hal

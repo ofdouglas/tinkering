@@ -69,7 +69,7 @@ size_t Uart::write(util::Span<const uint8_t> data) noexcept {
 // DMA2 Stream 5 Channel 4: RX
 // DMA2 Stream 7 Channel 4: TX
 void Uart::init() noexcept {
-    RCC->APB2ENR = RCC_APB2ENR_USART1EN;
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
     RCC->APB2ENR;
 
     RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;

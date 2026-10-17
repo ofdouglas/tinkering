@@ -5,6 +5,7 @@
 
 #include "ethernet.h"
 #include "logging/logging.h"
+#include "hal/poll.h"
 #include "osal/critical_section.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -131,8 +132,12 @@ void Ethernet::phyWrite(uint8_t phy_address, uint8_t mii_register, uint16_t data
 
 uint16_t Ethernet::phyTransaction(uint8_t phy_address, uint8_t mii_register, uint16_t data,
                                   bool is_write) noexcept {
-    // Wait for any previous request to finish.
-    while ((ETH->MACMIIAR & ETH_MACMIIAR_MB) != 0U) {
+    static constexpr auto kPhyTransactionTimeout{std::chrono::milliseconds(25U)};
+
+    if (!hal::pollOrLogError<hal::SchedulerClock>(
+            "previous PHY transaction", kPhyTransactionTimeout,
+            []() { return (ETH->MACMIIAR & ETH_MACMIIAR_MB) == 0U; })) {
+        return 0U;  // TODO: std::optional<uint16_t> or equivalent
     }
 
     uint32_t request{((phy_address & 0x1FU) << ETH_MACMIIAR_PA_Pos) | ETH_MACMIIAR_CR_Div102 |
@@ -145,7 +150,10 @@ uint16_t Ethernet::phyTransaction(uint8_t phy_address, uint8_t mii_register, uin
 
     ETH->MACMIIAR = request;
 
-    while ((ETH->MACMIIAR & ETH_MACMIIAR_MB) != 0U) {
+    if (!hal::pollOrLogError<hal::SchedulerClock>(
+            "current PHY transaction", kPhyTransactionTimeout,
+            []() { return (ETH->MACMIIAR & ETH_MACMIIAR_MB) == 0U; })) {
+        return 0U;  // TODO: std::optional<uint16_t> or equivalent
     }
     return static_cast<uint16_t>(ETH->MACMIIDR);
 }
@@ -253,10 +261,11 @@ Ethernet::State Ethernet::getState() const noexcept {
     return state_.load();
 }
 
-void Ethernet::softwareResetMac() noexcept {
+bool Ethernet::softwareResetMac() noexcept {
     ETH->DMABMR |= ETH_DMABMR_SR;
-    while ((ETH->DMABMR & ETH_DMABMR_SR) != 0U) {
-    }
+    return hal::pollOrLogError<hal::SchedulerClock>(
+        "software reset MAC", hal::kDefaultPollingTimeout,
+        []() { return (ETH->DMABMR & ETH_DMABMR_SR) == 0U; });
 }
 
 void Ethernet::init() noexcept {
@@ -267,7 +276,10 @@ void Ethernet::init() noexcept {
     RCC->AHB1ENR |= RCC_AHB1ENR_ETHMACTXEN | RCC_AHB1ENR_ETHMACRXEN | RCC_AHB1ENR_ETHMACEN;
     RCC->AHB1ENR;
 
-    softwareResetMac();
+    if (!softwareResetMac()) {
+        LOG_ERROR() << "Ethernet not initialized: software reset MAC failed";
+        return;
+    }
 
     if (!phyVerifyPhyId()) {
         LOG_ERROR() << "Ethernet not initialized: PHY ID verification failed";

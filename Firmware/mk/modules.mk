@@ -1,5 +1,5 @@
 # Modules with a <name>_test.cpp source file.
-MODULES := hdlc crc bootloader data_structures
+MODULES := hdlc crc bootloader data_structures util hal
 
 # Link in host unit tests instead of platform logging/clock sources.
 HOST_TEST_SUPPORT_SRCS := hal/mock_clocks.cpp logging/mock_log.cpp
@@ -23,3 +23,9 @@ data_structures_SRCS := \
 	data_structures/test/object_pool_test.cpp \
 	data_structures/test/ring_buffer_test.cpp
 data_structures_TEST := data_structures_test
+
+util_SRCS := util/test/bit_test.cpp
+util_TEST := util_test
+
+hal_SRCS := hal/test/sw_extended_timer_test.cpp
+hal_TEST := hal_test

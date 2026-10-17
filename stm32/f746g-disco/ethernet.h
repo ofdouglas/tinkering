@@ -170,7 +170,7 @@ private:
 
     void enableTxRx() noexcept;
     void disableTxRx() noexcept;
-    void softwareResetMac() noexcept;
+    bool softwareResetMac() noexcept;
 
     static Ethernet *instance_;
 

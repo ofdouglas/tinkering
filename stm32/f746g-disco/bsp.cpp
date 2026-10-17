@@ -7,10 +7,15 @@
 #include "stm32f746xx.h"
 
 #include "hal/clock.h"
+#include "hal/poll.h"
+#include "lptimer.h"
 
 namespace {
 
 std::atomic<uint32_t> sys_tick_count{};
+
+Lptimer lptimer_{reinterpret_cast<LPTIM_TypeDef*>(LPTIM1_BASE)};
+typename Bsp::ExtendedTimerType extended_lptimer_{lptimer_};
 
 }  // namespace
 
@@ -22,17 +27,26 @@ hal::SchedulerClock::TimePoint hal::SchedulerClock::now() noexcept {
     return hal::SchedulerClock::TimePoint(std::chrono::milliseconds(sys_tick_count));
 }
 
+extern "C" void LPTIM1_IRQHandler() {
+    extended_lptimer_.handleTimerWrapInterrupt();
+}
+
+hal::EarlyClock::TimePoint hal::EarlyClock::now() noexcept {
+    return hal::EarlyClock::TimePoint(std::chrono::nanoseconds(extended_lptimer_.read()));
+}
+
 void Bsp::init() noexcept {
     reset_manager_.readResetCause();
 
+    initLptimer();
     initCpu();
     initClocks();
     initSysTick();
     initGpio();
 
     uart_.init();
-    // watchdog_.init(); TODO: can't initialize it yet because Ethernet init
-    // blocks for too long.
+    logging::setLogSink(&uart_);
+    reset_manager_.logResetCause();
 }
 
 void Bsp::initSysTick() noexcept {
@@ -41,8 +55,25 @@ void Bsp::initSysTick() noexcept {
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
 }
 
+void Bsp::initLptimer() noexcept {
+    RCC->CSR |= RCC_CSR_LSION;
+    while ((RCC->CSR & RCC_CSR_LSIRDY) == 0U) {
+        ;  // wait for the LSI to be ready.
+    }
+
+    RCC->DCKCFGR2 |= RCC_DCKCFGR2_LPTIM1SEL_0;  // LPTIM1 clock source: LSI (32 kHz).
+
+    RCC->APB1ENR |= RCC_APB1ENR_LPTIM1EN;
+    RCC->APB1ENR;
+
+    lptimer_.init();
+
+    NVIC_SetPriority(LPTIM1_IRQn, 3U);
+    NVIC_EnableIRQ(LPTIM1_IRQn);
+}
+
 void Bsp::initGpio() noexcept {
-    RCC->AHB1ENR =
+    RCC->AHB1ENR |=
         RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIOGEN;
     RCC->AHB1ENR;
 
@@ -114,18 +145,28 @@ void Bsp::initClocks() noexcept {
     RCC->CR |= RCC_CR_PLLON;
 
     // Set voltage scale 2.
-    RCC->APB1ENR = RCC_APB1ENR_PWREN;
+    RCC->APB1ENR |= RCC_APB1ENR_PWREN;
     RCC->APB1ENR;
     PWR->CR1 = PWR_CR1_VOS_1;
 
     RCC->CFGR = RCC_CFGR_PPRE2_DIV2 | RCC_CFGR_PPRE1_DIV4;
     FLASH->ACR = FLASH_ACR_PRFTEN | FLASH_ACR_LATENCY_5WS;
 
-    while ((PWR->CSR1 & PWR_CSR1_VOSRDY) == 0U) {
+    if (!hal::pollOrLogError<hal::EarlyClock>("voltage scale 2", hal::kDefaultPollingTimeout, []() {
+            return (PWR->CSR1 & PWR_CSR1_VOSRDY) != 0U;
+        })) {
+        return;
     }
-    while ((RCC->CR & RCC_CR_PLLRDY) == 0U) {
+    if (!hal::pollOrLogError<hal::EarlyClock>("PLL ready", hal::kDefaultPollingTimeout,
+                                              []() { return (RCC->CR & RCC_CR_PLLRDY) != 0U; })) {
+        return;
     }
     RCC->CFGR |= RCC_CFGR_SW_1;
+    if (!hal::pollOrLogError<hal::EarlyClock>("PLL switch", hal::kDefaultPollingTimeout, []() {
+            return (RCC->CFGR & RCC_CFGR_SWS) == RCC_CFGR_SWS_PLL;
+        })) {
+        return;
+    }
 }
 
 // The address of this symbol is the base of the interrupt vector table.

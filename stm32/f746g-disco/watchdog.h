@@ -19,7 +19,7 @@ public:
     Watchdog& operator=(Watchdog&&) = delete;
 
     /** @brief Starts the independent watchdog. */
-    void init() noexcept override;
+    void start() noexcept override;
 
     /** @brief Reloads the independent watchdog counter. */
     void kick() noexcept override;

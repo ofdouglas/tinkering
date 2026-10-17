@@ -24,7 +24,9 @@ public:
     UptimeLogger() : bare_metal::PeriodicTask(std::chrono::milliseconds(2000U)) {}
 
     void tick() noexcept override {
-        LOG_INFO() << "Uptime: " << hal::SchedulerClock::now();
+        const uint32_t early_clock_ms =
+            static_cast<uint32_t>(hal::EarlyClock::now().time_since_epoch().count() / 1'000'000ULL);
+        LOG_INFO() << "Uptime: " << hal::SchedulerClock::now() << " / " << early_clock_ms << " ms";
     }
 };
 
@@ -104,23 +106,25 @@ private:
     __builtin_unreachable();
 }
 
+namespace {
+// Application objects
+Bsp bsp{};
+Ethernet ethernet{};
+
+// Tasks
+LedBlinky led_blinky{};
+EthernetTest eth_task{ethernet};
+EthernetLinkManager link_manager{ethernet};
+UptimeLogger uptime_logger{};
+}  // namespace
+
 int main() {
-    static Bsp bsp{};
-    static Ethernet ethernet{};
-
     std::set_terminate(mcuTerminate);
-
-    // Tasks. TODO: organize into an application class, store in .bss section.
-    LedBlinky led_blinky{};
-    EthernetTest eth_task{ethernet};
-    EthernetLinkManager link_manager{ethernet};
-    UptimeLogger uptime_logger{};
+    bsp.getWatchdog().start();
 
     bsp.init();
     ethernet.init();
 
-    logging::setLogSink(bsp.getUart());
-    bsp.getResetManager().logResetCause();
     __enable_irq();
 
     led_blinky.start();
@@ -128,7 +132,10 @@ int main() {
     eth_task.start();
     link_manager.start();
 
+    LOG_INFO() << "Init completed at " << hal::SchedulerClock::now();
+
     for (;;) {
+        bsp.getWatchdog().kick();
         led_blinky.poll();
         uptime_logger.poll();
         eth_task.poll();

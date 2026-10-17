@@ -6,9 +6,13 @@
 
 #include <cstdint>
 
+#include "stm32f746xx.h"
+
+#include "hal/sw_extended_timer.h"
 #include "hal/reset_manager_interface.h"
 #include "hal/watchdog_interface.h"
 #include "interfaces/stream_interface.h"
+#include "lptimer.h"
 #include "reset_manager.h"
 #include "uart.h"
 #include "watchdog.h"
@@ -18,6 +22,12 @@
  */
 class Bsp {
 public:
+    // @warning The LSI oscillator is not very accurate.
+    static constexpr uint64_t kLptimerTickDurationNs = 31'250U;  // 1 / 32 kHz == 31.25 us.
+
+    using ExtendedTimerType =
+        hal::SoftwareExtendedTimer<Lptimer, uint64_t, kLptimerTickDurationNs, uint64_t>;
+
     Bsp() noexcept = default;
 
     Bsp(const Bsp&) = delete;
@@ -41,6 +51,7 @@ public:
     }
 
 private:
+    void initLptimer() noexcept;
     void initCpu() noexcept;
     void initClocks() noexcept;
     void initSysTick() noexcept;
