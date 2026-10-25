@@ -6,6 +6,7 @@
 
 #include "bare_metal/task.h"
 #include "bsp.h"
+#include "cpu_context.h"
 #include "ethernet.h"
 #include "hal/reset_manager_interface.h"
 #include "logging/logging.h"
@@ -106,6 +107,38 @@ private:
     __builtin_unreachable();
 }
 
+RingBuffer<IntegerRegisters, 2> crash_buffer_{};
+
+extern "C" void log_crash(const IntegerRegisters *regs) {
+    crash_buffer_.enqueue(*regs);
+}
+
+void drainCrashBuffer() noexcept {
+    while (!crash_buffer_.isEmpty()) {
+        IntegerRegisters regs;
+        if (!crash_buffer_.dequeue(regs)) {
+            break;
+        }
+        // TODO: print as one message
+        LOG_ERROR() << "CPU crash detected";
+        // -1 because we have 17 total (SP is last)
+        for (size_t i = 0; i < (IntegerRegisters::kTotalNumRegisters - 1); i += 2) {
+            // TODO: proper 32-bit hex formatting (without cast to void*)
+            LOG_ERROR() << IntegerRegisters::kNames[i] << ": "
+                        << reinterpret_cast<void *>(regs._data[i]) << " \t"
+                        << IntegerRegisters::kNames[i + 1] << ": "
+                        << reinterpret_cast<void *>(regs._data[i + 1]);
+        }
+    }
+}
+
+void testCrash() {
+    asm volatile(
+        "push {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12} \n\t"
+        "svc 0 \n\t"
+        "pop {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12} \n\t");
+}
+
 namespace {
 // Application objects
 Bsp bsp{};
@@ -134,12 +167,16 @@ int main() {
 
     LOG_INFO() << "Init completed at " << hal::SchedulerClock::now();
 
+    testCrash();
+
     for (;;) {
         bsp.getWatchdog().kick();
         led_blinky.poll();
         uptime_logger.poll();
         eth_task.poll();
         link_manager.poll();
+
+        drainCrashBuffer();
     }
 
     std::terminate();

@@ -10,6 +10,9 @@ public:
     ~Lptimer() noexcept = default;
 
     void init() noexcept {
+        // Freeze the timer while halted in debug mode
+        DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_LPTIM1_STOP;
+
         // Interrupt on reload value
         lptim_->IER |= LPTIM_IER_ARRMIE;
 
@@ -26,9 +29,11 @@ public:
     }
 
     bool checkWrapAround() noexcept {
-        const uint32_t isr = lptim_->ISR;
-        lptim_->ICR |= isr;
-        return (isr & LPTIM_ISR_ARRM) != 0U;
+        if ((lptim_->ISR & LPTIM_ISR_ARRM) != 0U) {
+            lptim_->ICR |= LPTIM_ICR_ARRMCF;
+            return true;
+        }
+        return false;
     }
 
     /**

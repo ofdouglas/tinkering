@@ -36,7 +36,8 @@ OBJECTS := \
 	$(BUILD_DIR)/uart.o \
 	$(BUILD_DIR)/watchdog.o \
 	$(BUILD_DIR)/logging/log.o \
-	$(BUILD_DIR)/startup_stm32f746xx.o
+	$(BUILD_DIR)/startup_stm32f746xx.o \
+	$(BUILD_DIR)/context_capture.o
 DEPS := $(OBJECTS:.o=.d)
 
 OPENOCD ?= openocd
@@ -84,6 +85,10 @@ $(BUILD_DIR)/logging/log.o: $(FIRMWARE_DIR)/logging/log.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 $(BUILD_DIR)/startup_stm32f746xx.o: startup_stm32f746xx.s
+	@mkdir -p $(dir $@)
+	$(CC) $(ASFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/context_capture.o: context_capture.S
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -MMD -MP -c $< -o $@
 
