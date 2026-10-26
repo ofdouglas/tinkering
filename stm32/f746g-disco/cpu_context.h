@@ -74,4 +74,37 @@ struct ExcReturnBits {
     };
 };
 
+/**
+ *  @brief Jump to the crash logger
+ *  @TODO: should not be SVC
+ */
+#define captureCrashDump() asm volatile("svc 0")
+
+/**
+ *  @brief Save the crash dump and reset the system
+ */
 extern "C" void log_crash(const IntegerRegisters* regs);
+
+struct CrashDumpRecord {
+    static constexpr uint32_t kMagicValue = 0xCCDD0123;
+
+    // TODO: reuse CRC implementation from Firmware/crc
+    static uint64_t calcChecksum(const CrashDumpRecord* data) {
+        const uint32_t* p = reinterpret_cast<const uint32_t*>(&data->regs);
+        const uint32_t* end = reinterpret_cast<const uint32_t*>(&data->checksum);
+        uint64_t sum{0U};
+
+        while (p != end) {
+            sum += *p++;
+        }
+        return sum;
+    }
+
+    static bool isValid(const CrashDumpRecord* data) {
+        return (data->magic == kMagicValue) && (data->checksum == calcChecksum(data));
+    }
+
+    IntegerRegisters regs;
+    uint32_t magic;
+    uint64_t checksum;  // modular sum of all other words in the struct
+};

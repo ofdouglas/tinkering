@@ -1,6 +1,7 @@
+*.txt
 *.d
 *.o
-*.a.out
+*.out
 *.h.gch
 *.su
 *.pyc

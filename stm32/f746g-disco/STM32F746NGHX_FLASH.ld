@@ -80,6 +80,16 @@ SECTIONS
 
   _sidata = LOADADDR(.data);
 
+  .reset_persistent (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _reset_persistent_start = .;
+    *(.reset_persistent)
+    *(.reset_persistent*)
+    . = ALIGN(4);
+    _reset_persistent_end = .;
+  } > RAM
+
   .data :
   {
     . = ALIGN(4);

@@ -11,13 +11,25 @@
 #include "hal/reset_manager_interface.h"
 #include "logging/logging.h"
 
+namespace {
+volatile bool g_exit_requested{false};
+}
+
 class LedBlinky : public bare_metal::PeriodicTask {
 public:
     LedBlinky() : bare_metal::PeriodicTask(std::chrono::milliseconds(500U)) {}
 
     void tick() noexcept override {
         GPIOC->ODR ^= GPIO_ODR_OD7_Msk;
+
+        if (num_ticks_ >= 25) {
+            g_exit_requested = true;
+        } else {
+            num_ticks_++;
+        }
     }
+
+    uint32_t num_ticks_{};
 };
 
 class UptimeLogger : public bare_metal::PeriodicTask {
@@ -98,45 +110,45 @@ private:
 // TODO: add a terminate reason enum.
 // TODO: make this a common library? needs platform-specific IRQ disable.
 [[noreturn]] void mcuTerminate() noexcept {
-    __disable_irq();
+    // This terminates
+    captureCrashDump();
 
-    // TODO: record crash dump.
+    while (true) {
+    }
+    __builtin_unreachable();
+}
+
+__attribute__((section(".reset_persistent"))) CrashDumpRecord crash_dump;
+
+extern "C" void log_crash(const IntegerRegisters *regs) {
+    crash_dump.regs = *regs;
+    crash_dump.magic = CrashDumpRecord::kMagicValue;
+    crash_dump.checksum = CrashDumpRecord::calcChecksum(&crash_dump);
 
     // Immediate reset, because the watchdog might not be enabled.
     NVIC_SystemReset();
     __builtin_unreachable();
 }
 
-RingBuffer<IntegerRegisters, 2> crash_buffer_{};
-
-extern "C" void log_crash(const IntegerRegisters *regs) {
-    crash_buffer_.enqueue(*regs);
-}
-
 void drainCrashBuffer() noexcept {
-    while (!crash_buffer_.isEmpty()) {
-        IntegerRegisters regs;
-        if (!crash_buffer_.dequeue(regs)) {
-            break;
-        }
-        // TODO: print as one message
-        LOG_ERROR() << "CPU crash detected";
-        // -1 because we have 17 total (SP is last)
-        for (size_t i = 0; i < (IntegerRegisters::kTotalNumRegisters - 1); i += 2) {
-            // TODO: proper 32-bit hex formatting (without cast to void*)
-            LOG_ERROR() << IntegerRegisters::kNames[i] << ": "
-                        << reinterpret_cast<void *>(regs._data[i]) << " \t"
-                        << IntegerRegisters::kNames[i + 1] << ": "
-                        << reinterpret_cast<void *>(regs._data[i + 1]);
-        }
+    if (!CrashDumpRecord::isValid(&crash_dump)) {
+        return;
     }
-}
 
-void testCrash() {
-    asm volatile(
-        "push {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12} \n\t"
-        "svc 0 \n\t"
-        "pop {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12} \n\t");
+    // TODO: print as one message
+    LOG_ERROR() << "CPU crash detected";
+    // -1 because we have 17 total (SP is last)
+    for (size_t i = 0; i < (IntegerRegisters::kTotalNumRegisters - 1); i += 2) {
+        // TODO: proper 32-bit hex formatting (without cast to void*)
+        LOG_ERROR() << IntegerRegisters::kNames[i] << ": "
+                    << reinterpret_cast<void *>(crash_dump.regs._data[i]) << " \t"
+                    << IntegerRegisters::kNames[i + 1] << ": "
+                    << reinterpret_cast<void *>(crash_dump.regs._data[i + 1]);
+    }
+
+    // Invalidate the record
+    crash_dump.magic = 0U;
+    crash_dump.checksum = 0U;
 }
 
 namespace {
@@ -167,17 +179,15 @@ int main() {
 
     LOG_INFO() << "Init completed at " << hal::SchedulerClock::now();
 
-    testCrash();
+    drainCrashBuffer();
 
-    for (;;) {
+    do {
         bsp.getWatchdog().kick();
         led_blinky.poll();
         uptime_logger.poll();
         eth_task.poll();
         link_manager.poll();
-
-        drainCrashBuffer();
-    }
+    } while (g_exit_requested == false);
 
     std::terminate();
     __builtin_unreachable();

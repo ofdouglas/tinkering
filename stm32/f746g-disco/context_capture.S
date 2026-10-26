@@ -54,19 +54,16 @@ SVC_Handler:
     ldmia   r12!, {r0, r1, r2}
     stmia   r3!, {r0, r1, r2}
 
-    /* save the original stack pointer into buffer */
-    /* TODO: need to account for alignment padding */
+    /* save the original stack pointer into buffer
+       xPSR[9] is set if the frame was 4-byte aligned, and has a padding word */
+    tst     r2, #512
+    it      ne
+    orrne   r12, #4
     str     r12, [r3]
 
     /* call C++ crash logger */
-    /* TODO: make sure SP is usable! */
+    /* ldr     sp, =_estack   TODO: safe stack */
     sub     r0, r3, #64
-    /*
-    push    {lr}
-    bl      log_crash
-    pop     {lr}
-    bx      lr
-    */
     b       log_crash
 
 
