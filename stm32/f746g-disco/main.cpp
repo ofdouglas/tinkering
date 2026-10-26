@@ -22,7 +22,7 @@ public:
     void tick() noexcept override {
         GPIOC->ODR ^= GPIO_ODR_OD7_Msk;
 
-        if (num_ticks_ >= 25) {
+        if (num_ticks_ >= 15) {
             g_exit_requested = true;
         } else {
             num_ticks_++;
@@ -120,8 +120,9 @@ private:
 
 __attribute__((section(".reset_persistent"))) CrashDumpRecord crash_dump;
 
-extern "C" void log_crash(const IntegerRegisters *regs) {
+extern "C" void log_crash(const IntegerRegisters *regs, const FaultRegisters *faults) {
     crash_dump.regs = *regs;
+    crash_dump.faults = *faults;
     crash_dump.magic = CrashDumpRecord::kMagicValue;
     crash_dump.checksum = CrashDumpRecord::calcChecksum(&crash_dump);
 
@@ -137,13 +138,21 @@ void drainCrashBuffer() noexcept {
 
     // TODO: print as one message
     LOG_ERROR() << "CPU crash detected";
+    size_t kLastIndex = IntegerRegisters::kTotalNumRegisters - 1;
     // -1 because we have 17 total (SP is last)
-    for (size_t i = 0; i < (IntegerRegisters::kTotalNumRegisters - 1); i += 2) {
+    for (size_t i = 0; i < kLastIndex; i += 2) {
         // TODO: proper 32-bit hex formatting (without cast to void*)
         LOG_ERROR() << IntegerRegisters::kNames[i] << ": "
                     << reinterpret_cast<void *>(crash_dump.regs._data[i]) << " \t"
                     << IntegerRegisters::kNames[i + 1] << ": "
                     << reinterpret_cast<void *>(crash_dump.regs._data[i + 1]);
+    }
+    LOG_ERROR() << IntegerRegisters::kNames[kLastIndex] << ": "
+                << reinterpret_cast<void *>(crash_dump.regs._data[kLastIndex]);
+
+    for (size_t i = 0; i < FaultRegisters::kTotalNumRegisters; i++) {
+        LOG_ERROR() << FaultRegisters::kNames[i] << ": "
+                    << reinterpret_cast<void *>(crash_dump.faults._data[i]);
     }
 
     // Invalidate the record
@@ -162,6 +171,17 @@ EthernetTest eth_task{ethernet};
 EthernetLinkManager link_manager{ethernet};
 UptimeLogger uptime_logger{};
 }  // namespace
+
+void testBusFault() noexcept {
+    volatile uint32_t *bad_pointer = reinterpret_cast<uint32_t *>(0xFFFF'0000U);
+    volatile uint32_t value = *bad_pointer;
+    (void)value;
+}
+
+void testUnalignedAccessFault() noexcept {
+    volatile uint32_t *bad_pointer = reinterpret_cast<uint32_t *>(0xFFFF'FFFFU);
+    *bad_pointer = 0xDEAD'BEEF;
+}
 
 int main() {
     std::set_terminate(mcuTerminate);
@@ -188,6 +208,9 @@ int main() {
         eth_task.poll();
         link_manager.poll();
     } while (g_exit_requested == false);
+
+    // testBusFault();
+    testUnalignedAccessFault();
 
     std::terminate();
     __builtin_unreachable();

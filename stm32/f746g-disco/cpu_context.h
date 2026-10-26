@@ -2,6 +2,29 @@
 
 #include <cstdint>
 
+// ARMv7-M (not present in ARMv6-M (M0/M0+))
+struct FaultRegisters {
+    static constexpr size_t kTotalNumRegisters = 5;
+
+    static constexpr char kNames[kTotalNumRegisters][6] = {"shcsr", " cfsr", " hfsr", "mmfar",
+                                                           " bfar"};
+
+    union {
+        uint32_t _data[kTotalNumRegisters];
+        struct {
+            uint32_t _shcsr;
+            uint32_t _cfsr;
+            uint32_t _hfsr;
+            uint32_t _mmfar;
+            uint32_t _bfar;
+        };
+    };
+};
+
+static_assert(sizeof(FaultRegisters) == 20, "Incorrect size of FaultRegisters");
+static_assert(sizeof(FaultRegisters) == (FaultRegisters::kTotalNumRegisters * sizeof(uint32_t)),
+              "Incorrect size of FaultRegisters");
+
 // struct FloatRegisters {
 //     float _s[16];
 //     uint32_t _fpscr;
@@ -83,7 +106,7 @@ struct ExcReturnBits {
 /**
  *  @brief Save the crash dump and reset the system
  */
-extern "C" void log_crash(const IntegerRegisters* regs);
+extern "C" void log_crash(const IntegerRegisters* regs, const FaultRegisters* faults);
 
 struct CrashDumpRecord {
     static constexpr uint32_t kMagicValue = 0xCCDD0123;
@@ -105,6 +128,7 @@ struct CrashDumpRecord {
     }
 
     IntegerRegisters regs;
+    FaultRegisters faults;
     uint32_t magic;
     uint64_t checksum;  // modular sum of all other words in the struct
 };
