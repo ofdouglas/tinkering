@@ -21,6 +21,7 @@ module system_tb;
     logic uart_seen;
     logic hello_complete;
     logic test_failed;
+    logic [7:0] led_prev;
     logic [31:0] expected_sram [0:SYSTEM_SRAM_WORDS-1];
     bit system_sram_expected_loaded;
     int unsigned system_sram_check_words;
@@ -73,7 +74,7 @@ module system_tb;
             dut.cpu.memory_regs.writeback_data,
             dut.cpu.memory_regs.wb_ctrl.rd_reg_select,
             dut.cpu.memory_regs.wb_ctrl.writeback_en,
-            dut.cpu.cpu_ctrl.mem_stall,
+            dut.cpu.memory_stall,
             dut.cpu.mem_response_wait);
         $display("system_tb:   bus    request=%b addr=0x%08x wr_strobe=0x%x wr_data=0x%08x",
             dut.cpu_request, dut.address_bus, dut.byte_enables, dut.data_write_bus);
@@ -393,7 +394,7 @@ module system_tb;
     endtask
 
     initial begin
-        logic [7:0] led_prev = '0;
+        led_prev = '0;
         forever begin
             @(posedge clk);
             if (led !== led_prev) begin

@@ -21,12 +21,13 @@ Artifacts go to `build/sim/<module>/`. Waveforms: `build/sim/<module>/<top>.fst`
 
 Pass extra plusargs: `make sim MODULE=crc SIM_ARGS='+verbose'` (if the TB supports them).
 
-## CPU validation (unchanged)
+## CPU validation
 
 ```sh
-make cpu-test
-# or
-make -C cpu/test-fw sim
+make cpu-test                 # cpu_tb (test-fw) + system_tb
+make -C cpu test              # same, from cpu/
+make -C cpu/test-fw sim       # cpu_tb only
+make -C cpu sim-system        # system_tb only (builds firmware)
 make -C cpu/test-fw sim TEST=load_use VERBOSE=1
 ```
 

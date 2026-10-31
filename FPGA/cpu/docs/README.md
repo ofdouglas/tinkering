@@ -21,23 +21,25 @@ The current FPGA target is Digilent Nexys Video (`XC7A200T`). SoC/peripheral wor
 
 Verilator is the default simulator for day-to-day validation. The test firmware flow uses `riscv64-unknown-elf-` tools; Spike is optional for ISA reference checks. Vivado is used for FPGA project generation, xsim, and synthesis.
 
-CPU validation commands from `FPGA/cpu/test-fw`:
+CPU validation from `FPGA/` or `FPGA/cpu`:
 
 ```sh
-make sim
-make sim TEST=load_use VERBOSE=1 DUMP_REGS=1
-make sim MEM_LATENCY=2
-make spike-ref
+make cpu-test                 # from FPGA/: cpu_tb + system_tb
+make test                     # from FPGA/cpu: same
+make cputest                  # cpu_tb only
+make sim-system               # system_tb (Verilator; builds firmware)
+make -C test-fw sim TEST=load_use VERBOSE=1 DUMP_REGS=1
+make -C test-fw sim MEM_LATENCY=2
+make -C test-fw spike-ref
 ```
 
 Firmware and Vivado entry points:
 
 ```sh
-make -C FPGA/cpu/firmware
+make firmware
+make sim-system-vivado
 vivado -mode batch -source FPGA/cpu/scripts/create_project.tcl
 vivado -mode batch -source FPGA/cpu/scripts/sim.tcl
 ```
-
-`system_tb.sv` is the current Verilator SoC smoke bench, but it still needs a first-class Make target to build firmware, compile the bench, and pass `+FIRMWARE_HEX=...`.
 
 For synthesis, open or regenerate `FPGA/vivado/cpu/cpu.xpr` and run `FPGA/cpu/scripts/build.tcl`.

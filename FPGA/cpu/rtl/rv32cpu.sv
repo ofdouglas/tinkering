@@ -76,7 +76,10 @@ assign flush_ex_stage     = exception_entry || exception_return;
 logic mti_armed, mei_armed, external_interrupt;
 assign mti_armed          = mti_irq && machine_special_regs.mie.mti_enable;
 assign mei_armed          = mei_irq && machine_special_regs.mie.mei_enable;
-assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed);
+// Take IRQs on a valid MEM-stage instruction, not a bubble (mepc would be 0)
+// and not while a memory op is stalled.
+assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed)
+                            && execute_regs.valid && !memory_stall;
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -739,9 +742,9 @@ always_comb begin
     mem_size = mem_size_e'(execute_regs.funct_3[1:0]);
     zero_extend = (execute_regs.funct_3[2] == LOAD_UNSIGNED);
 
-    memory_stall = (mem_stage_is_store || mem_stage_is_load) && (!mem_response_wait || !mem_response_ready);
-    // cpu_ctrl.mem_unaligned = 1'b0; // TODO:
-    // cpu_ctrl.bus_error = 1'b0; // TODO:
+    memory_stall = (mem_stage_is_store || mem_stage_is_load)
+                   && (!mem_response_wait || !mem_response_ready)
+                   && !mem_fault;
 
     case (mem_size)
         MEM_BYTE : begin
@@ -852,9 +855,6 @@ always_comb begin
         exception_entry  = 1'b1;
         // TODO: handle others, verify MTI
         mcause_data = write_mcause(1, mei_armed ? IRQ_SRC_MEI : IRQ_SRC_MTI);
-
-        // TODO: is this correct if the branch is mispredicted?
-        // mepc_addr = decode_regs.current_pc;
     end
 end
 

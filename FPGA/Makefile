@@ -8,7 +8,7 @@ SIM_ARGS  ?=
 
 include mk/verilator.mk
 
-.PHONY: help list cpu-test
+.PHONY: help list cpu-test cpu-test-all
 
 .DEFAULT_GOAL := help
 
@@ -24,12 +24,13 @@ help:
 	@echo "  make lint-one MODULE=<name>"
 	@echo "  make clean                 Remove build/"
 	@echo ""
-	@echo "  make cpu-test              Run CPU Verilator tests (cpu/test-fw)"
+	@echo "  make cpu-test              Run CPU Verilator tests (cpu_tb + system_tb)"
+	@echo "  make cpu-test-all          Same as cpu-test"
 	@echo ""
 	@echo "Modules: $(MODULES)"
 
 list:
 	@echo $(MODULES)
 
-cpu-test:
-	$(MAKE) -C cpu/test-fw sim
+cpu-test cpu-test-all:
+	$(MAKE) -C cpu test
