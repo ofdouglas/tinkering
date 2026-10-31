@@ -86,22 +86,22 @@ jr_tgt:
     /* Case 13: back-to-back lbu to same rd, then immediate use */
     lbu   x9,  12(x1)
     lbu   x9,  13(x1)         /* verify x9  = 0x00000080 (byte @+13) */
-    addi  x2,  x9,  1         /* verify x2  = 0x00000081; overwrites case 9 x2 */
+    addi  x27, x9,  1         /* verify x27 = 0x00000081 */
 
     /* Case 14: lw -> beq not-taken */
     lw    x16, 0(x1)
     addi  x17, x0,  1
     beq   x16, x17, lu_nt_fail
-    addi  x15, x0,  0x54      /* verify x15 = 0x00000054 */
+    addi  x24, x0,  0x54      /* verify x24 = 0x00000054 */
     jal   x0,  lu_nt_done
 lu_nt_fail:
-    addi  x15, x0,  -1
+    addi  x24, x0,  -1
 lu_nt_done:
 
     /* Case 15: lw -> lw address (pointer chase, no gap) */
     sw    x1,  24(x1)
-    lw    x18, 24(x1)         /* verify x18 = SRAM base */
-    lw    x19, 0(x18)         /* verify x19 = 0xdeadceef */
+    lw    x19, 24(x1)         /* verify x19 = SRAM base */
+    lw    x17, 0(x19)         /* verify x17 = 0xdeadceef */
 
     /* Final SRAM layout (see expected/load_use.sram):
      *   word 0 @ 0x10000 = 0xdeadceef

@@ -86,9 +86,20 @@ jr_x0_tgt:
 jr_odd_tgt:
     addi  x30, x0, 0xC7      /* verify x30 = 0x000000c7, odd-target landing marker */
 
+    /* Snapshot LUI/AUIPC fundamentals and the odd-target JALR link.
+     * x1 is 0 (same as x0); the pointer clobbers it before the coda. */
+    lui   x1,  %hi(_sram_start)
+    sw    x2,  0(x1)
+    sw    x3,  4(x1)
+    sw    x4,  8(x1)
+    sw    x5,  12(x1)
+    sw    x6,  16(x1)
+    sw    x7,  20(x1)
+    sw    x8,  24(x1)
+    sw    x31, 28(x1)
+
     /* ================================================================
      * Corner cases — register forwarding into JALR base (rs1)
-     * (repurposes x1-x8; fundamentals already exercised above)
      * ================================================================ */
     addi  x31, x0, 0xD0      /* verify x31 = 0x000000d0, N+1 forward success marker */
     auipc x1,  0

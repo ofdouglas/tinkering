@@ -52,6 +52,24 @@ not_taken_invalid_done:
     .word 0x00000053                   /* op-fp opcode (F extension) */
     addi  x19, x0,  0x704             /* verify x19 = post-FP marker */
 
+    /* FENCE (decoded as illegal until implemented) */
+    addi  x26, x0,  0x705             /* verify x26 = pre-FENCE marker */
+    fence
+    addi  x27, x0,  0x706             /* verify x27 = post-FENCE marker */
+
+    /* SYSTEM funct3=100 (reserved) */
+    addi  x28, x0,  0x707             /* verify x28 = pre-SYSTEM-reserved marker */
+    .word 0x00004073
+    addi  x29, x0,  0x708             /* verify x29 = post-SYSTEM-reserved marker */
+
+    /* Taken branch to an illegal encoding must trap. */
+    addi  x24, x0,  0x774             /* verify x24 = taken-branch pre-marker */
+    beq   x0,  x0,  taken_invalid_target
+    addi  x24, x0,  -1
+taken_invalid_target:
+    .word 0x0000007f
+    addi  x25, x0,  0x775             /* verify x25 = taken-branch post-marker */
+
     nop
     nop
     nop
@@ -60,6 +78,7 @@ not_taken_invalid_done:
 
 .global _exception_entry
 _exception_entry:
+    addi  x1,  x1,  1                 /* verify x1  = trap count */
     lui   x15, %hi(0x00011e2a)
     addi  x15, x15, %lo(0x00011e2a)  /* verify x15 = illegal-handler marker */
     csrrs x2,  mepc, x0               /* verify x2  = last illegal PC */

@@ -46,6 +46,24 @@ _start:
 
     csrrs x15, misa, x0        /* verify x15 = misa reset value (read-only reread) */
 
+    /* Snapshot x1–x15; later blocks reuse those dests. */
+    lui   x30, %hi(_sram_start)
+    sw    x1,  0(x30)
+    sw    x2,  4(x30)
+    sw    x3,  8(x30)
+    sw    x4,  12(x30)
+    sw    x5,  16(x30)
+    sw    x6,  20(x30)
+    sw    x7,  24(x30)
+    sw    x8,  28(x30)
+    sw    x9,  32(x30)
+    sw    x10, 36(x30)
+    sw    x11, 40(x30)
+    sw    x12, 44(x30)
+    sw    x13, 48(x30)
+    sw    x14, 52(x30)
+    sw    x15, 56(x30)
+
     /* --- CSR control hazards (back-to-back same CSR unless noted) --- */
 
     /* H1: CSRRW -> CSRRS read same CSR */
@@ -75,18 +93,41 @@ _start:
     /* H5: write CSR A -> read CSR B (different address, no CSR WB hazard) */
     load_msi x30
     csrrw x26, mie, x30        /* verify x26 = 0x00000880 (old mie) */
-    csrrs x27, mip, x0         /* verify x27 = 0x00000888 (unchanged mip) */
+    csrrs x27, mip, x0         /* verify x27 = 0x00000008 (MSI only; mei/mti follow pins) */
 
     /* H6: CSRRC clear MSI -> read same CSR */
     load_msi x30
     csrrc x28, mie, x30        /* verify x28 = 0x00000008 (old mie) */
     csrrs x29, mie, x0         /* verify x29 = 0x00000000 (clear -> read same CSR) */
 
+    /* Snapshot H1–H6 (x16–x29) before H7 reuses x18–x20. */
+    lui   x30, %hi(_sram_start)
+    sw    x16, 60(x30)
+    sw    x17, 64(x30)
+    sw    x18, 68(x30)
+    sw    x19, 72(x30)
+    sw    x20, 76(x30)
+    sw    x21, 80(x30)
+    sw    x22, 84(x30)
+    sw    x23, 88(x30)
+    sw    x24, 92(x30)
+    sw    x25, 96(x30)
+    sw    x26, 100(x30)
+    sw    x27, 104(x30)
+    sw    x28, 108(x30)
+    sw    x29, 112(x30)
+
     /* H7: mtvec write chain */
     lui   x30, 0x20
-    csrrw x18, mtvec, x30      /* verify x18 = 0x00010000 (old mtvec; overwrites H2 x18) */
+    csrrw x18, mtvec, x30      /* verify x18 = 0x00010000 (old mtvec) */
     csrrw x19, mtvec, x30      /* verify x19 = 0x00020000 (old mtvec after prior write) */
-    csrrs x20, mtvec, x0       /* verify x20 = 0x00020000 (overwrites H3 x20) */
+    csrrs x20, mtvec, x0       /* verify x20 = 0x00020000 */
+
+    /* Snapshot H7 before the Z-block reuses x18–x20. */
+    lui   x30, %hi(_sram_start)
+    sw    x18, 116(x30)
+    sw    x19, 120(x30)
+    sw    x20, 124(x30)
 
     /* H8: CSR read result used immediately by ALU (x-register hazard) */
     load_msi x30
@@ -123,6 +164,36 @@ _start:
     /* Z6: CSRRS rs1!=x0 on read-only misa (write attempted; value unchanged) */
     load_mei x30
     csrrs x27, misa, x30       /* verify x27 = 0x40000080 (old misa) */
+
+    /* --- Direct R/W of remaining implemented CSRs (x1–x13 snapshotted above) --- */
+    csrrs x1,  marchid, x0     /* verify x1  = 0x000000fd */
+    csrrs x2,  mimpid, x0      /* verify x2  = 0x00000001 */
+    csrrs x3,  mhartid, x0     /* verify x3  = 0x00000000 */
+
+    csrrs x4,  mstatus, x0     /* verify x4  = 0x00000000 */
+    lui   x30, 0x2
+    addi  x30, x30, -1912      /* x30 = 0x00001888 (mpp=M, mpie, mie) */
+    csrrw x4,  mstatus, x30    /* verify x4  = 0x00000000 (old mstatus) */
+    csrrs x5,  mstatus, x0     /* verify x5  = 0x00001888 */
+
+    lui   x30, 0x10
+    addi  x30, x30, 0x100      /* x30 = 0x00010100 */
+    csrrw x6,  mepc, x30       /* verify x6  = 0x00000000 */
+    csrrs x7,  mepc, x0        /* verify x7  = 0x00010100 */
+
+    addi  x30, x0, 0xB
+    csrrw x8,  mcause, x30     /* verify x8  = 0x00000000 */
+    csrrs x9,  mcause, x0      /* verify x9  = 0x0000000b */
+
+    lui   x30, 0x1
+    csrrw x10, mtval, x30      /* verify x10 = 0x00000000 */
+    csrrs x11, mtval, x0       /* verify x11 = 0x00001000 */
+
+    /* mtvec mode bits are forced to direct (00) */
+    lui   x30, 0x30
+    addi  x30, x30, 1          /* x30 = 0x00030001 */
+    csrrw x12, mtvec, x30      /* verify x12 = 0x00020000 (old mtvec from H7) */
+    csrrs x13, mtvec, x0       /* verify x13 = 0x00030000 */
 
     nop
     nop

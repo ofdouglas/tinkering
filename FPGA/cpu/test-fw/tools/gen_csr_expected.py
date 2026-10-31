@@ -98,6 +98,20 @@ class Regs:
         ] + [f"{self.x[i]:08x}" for i in range(32)]
         Path(path).write_text("\n".join(lines) + "\n")
 
+    def dump_sram(self, path):
+        if not self.ram:
+            return
+        last = max(self.ram)
+        lines = [
+            "// ABI: words relative to _test_ram_start, one 32-bit hex word per line",
+            "@00000000",
+        ] + [f"{self.ram.get(i, 0):08x}" for i in range(last + 1)]
+        Path(path).write_text("\n".join(lines) + "\n")
+
+    def snap_regs(self, base_word, first, last):
+        for rd in range(first, last + 1):
+            self.ram[base_word + (rd - first)] = self.x[rd]
+
 
 def sim_csr_basic():
     r = Regs()
@@ -114,7 +128,10 @@ def sim_csr_basic():
     r.x[12] = read_mip(r.mip)
     r.x[13], r.mip = csrrw_mip(r.mip, W_ALL)
     r.x[14] = read_mip(r.mip)
+    # mei/mti pending follow irq pins; only MSI sticks after the write cycle
+    r.mip = (False, False, r.mip[2])
     r.x[15] = MISA
+    r.snap_regs(0, 1, 15)
     r.x[16], r.mie = csrrw_mie(r.mie, W_MTI)
     r.x[17] = read_mie(r.mie)
     r.x[18], r.mie = csrrw_mie(r.mie, W_MSI)
@@ -129,9 +146,13 @@ def sim_csr_basic():
     r.x[27] = read_mip(r.mip)
     r.x[28], r.mie = csrrc_mie(r.mie, W_MSI)
     r.x[29] = read_mie(r.mie)
+    r.snap_regs(15, 16, 29)
     r.x[18], r.mtvec = csrrw_mtvec(r.mtvec, 0x20000)
     r.x[19], r.mtvec = csrrw_mtvec(r.mtvec, 0x20000)
     r.x[20] = r.mtvec
+    r.ram[29] = r.x[18]
+    r.ram[30] = r.x[19]
+    r.ram[31] = r.x[20]
     r.x[30], r.mie = csrrw_mie(r.mie, W_MSI)
     r.x[30] = read_mie(r.mie)
     r.x[31] = r.x[30] + 1
@@ -148,6 +169,22 @@ def sim_csr_basic():
     r.x[26] = MISA
     r.x[27] = MISA
     r.x[30] = W_MEI
+    r.x[1] = 0xFD
+    r.x[2] = 1
+    r.x[3] = 0
+    r.x[4] = 0
+    r.x[30] = 0x1888
+    r.x[4] = 0
+    r.x[5] = 0x1888
+    r.x[6] = 0
+    r.x[7] = 0x10100
+    r.x[8] = 0
+    r.x[9] = 0xB
+    r.x[10] = 0
+    r.x[11] = 0x1000
+    r.x[12], r.mtvec = csrrw_mtvec(r.mtvec, 0x30001)
+    r.x[13] = r.mtvec
+    r.x[30] = 0x30001
     return r
 
 
@@ -184,25 +221,40 @@ def sim_csr_mixed():
     r.x[1] = 0x10000000
     r.x[2], r.mie = csrrw_mie(r.mie, 0)
     r.x[11] = W_MEI
+    r.ram[0] = r.x[11]
     r.x[12], r.mie = csrrw_mie(r.mie, W_MEI)
     r.x[13] = read_mie(r.mie)
     r.x[14] = W_MSI
+    r.ram[1] = r.x[14]
     r.x[15], r.mie = csrrs_mie(r.mie, W_MSI)
     r.x[16] = W_MTI
+    r.ram[2] = r.x[16]
     r.x[17], r.mie = csrrc_mie(r.mie, W_MTI)
     r.x[18] = W_MTI
     r.x[19], r.mie = csrrw_mie(r.mie, W_MTI)
     r.x[20] = W_MEI
     r.x[21], r.mie = csrrs_mie(r.mie, W_MEI)
+    r.ram[5] = r.x[11]
+    r.ram[6] = r.x[12]
+    r.ram[7] = r.x[13]
+    r.ram[8] = r.x[14]
+    r.ram[9] = r.x[15]
+    r.ram[10] = r.x[16]
+    r.ram[11] = r.x[17]
+    r.ram[12] = r.x[19]
+    r.ram[13] = r.x[21]
+    r.ram[14] = r.x[2]
     r.x[22] = read_mie(r.mie)
     r.x[23] = W_ALL
     r.x[24] = 0xBE
     r.x[25] = read_mie(r.mie)
+    r.ram[3] = r.x[25]
     r.x[26] = r.x[25]
     r.x[27] = W_MSI
     r.x[28], r.mie = csrrw_mie(r.mie, W_MSI)
     r.x[29], r.mie = csrrs_mie(r.mie, W_MEI)
     r.x[31] = W_MTI
+    r.ram[4] = r.x[31]
     r.x[30], r.mie = csrrw_mie(r.mie, W_MSI)
     r.x[2], r.mie = csrrw_mie(r.mie, W_MTI)
     r.x[3], r.mie = csrrwi_mie(r.mie, 8, True)
@@ -254,8 +306,12 @@ def sim_csr_rd_use():
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parent.parent / "expected"
-    sim_csr_basic().dump_expected(root / "csr_basic.regs")
+    basic = sim_csr_basic()
+    basic.dump_expected(root / "csr_basic.regs")
+    basic.dump_sram(root / "csr_basic.sram")
     sim_csr_immediate().dump_expected(root / "csr_immediate.regs")
-    sim_csr_mixed().dump_expected(root / "csr_mixed.regs")
+    mixed = sim_csr_mixed()
+    mixed.dump_expected(root / "csr_mixed.regs")
+    mixed.dump_sram(root / "csr_mixed.sram")
     sim_csr_rd_use().dump_expected(root / "csr_rd_use.regs")
-    print("wrote expected/csr_*.regs")
+    print("wrote expected/csr_*.regs and csr_{basic,mixed}.sram")

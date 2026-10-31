@@ -20,11 +20,11 @@
 - **Test completion contract** — define SRAM/MMIO status words so firmware can signal pass/fail/done instead of relying on fixed cycle counts; use it from ASM and C tests, with the existing timeout as fallback.
 - **Shared testbench utility layer** — keep growing `test_data_pkg.sv` / `test_sram_block.sv` for reusable path handling and SRAM expected checks while keeping CPU-specific debug, IRQ, and register checks local to `cpu_tb`.
 - **Component-oriented SoC integration tests** — add small system firmwares/tests for UART RX/TX, GPIO, timer IRQ, and bus/peripheral behavior; use optional SRAM expected files for side effects such as copied UART input.
-- **System Verilator target** — add a Make target to build/run `system_tb` with Verilator, including firmware build and `+FIRMWARE_HEX=...` wiring.
+- **System Verilator target** — `make -C FPGA/cpu sim-system` (also included in `make -C FPGA/cpu test` / `make cpu-test`).
 - **ISR injection more flexible / less brittle** — `cpu_tb` currently keys off a specific register value and PC in `trap.s`
 - **Control negative cases** — expand beyond current illegal-opcode smoke for bus errors, invalid CSR access, privilege faults as RTL handles them
 - **Multi-cycle memory** — run key tests with `MEM_LATENCY>1`
-- **C harness** — C tests skip register checks today; rely on `.sram` expected data. Consider checking `x30`/`x31` ASSERT path or a SRAM done word instead of fixed cycle count
+- **C harness** — C tests still skip most registers (`SKIP_REGS`); `cpu_tb` checks `x30`/`x31` (`signal_pass` / `ASSERT`) plus `.sram` expected data
 
 ## Later (C integration)
 
@@ -40,7 +40,6 @@
 - **Read-only CSR write attempts** — `csrrw`/`csrrs`/`csrrc` to `misa` verify the value stays the same, not that the core suppressed a write or raised an illegal-instruction trap (trap RTL TODO).
 - **Per-field CSR side effects** — not modeled; tests cannot distinguish “bit unchanged” vs “field not written”.
 
-## Lower Priority
+## ASM test conventions
 
-- **Tests clobber registers with earlier results** — Many tests clobber registers that contain earlier test results. `csr.s` hazard and rs1/x0 blocks overwrite earlier x-reg results; only end-of-test register check. Split tests or add mid-test checkpoints if needed.
-- **Rules for ASM test development** -- Register values to be verified should have an easily traceable value (ideally from just a handful of preceding instructions). Try not to clobber registers unless there is a way to verify them first.
+`cpu_tb` checks registers/SRAM only at end of test. A `/* verify xN = … */` value must still be in that register then, or already `sw`’d to `expected/<test>.sram`. Do not reuse a verified destination until it is snapshotted; snapshot at block boundaries, never inside a 0-gap sequence. Scratch regs get no `verify` comment. Fail-path poisons (`addi xN, -1`) are allowed. Prefer unique dests; values should be traceable from a handful of preceding instructions. See `FPGA/cpu/AGENTS.md`.

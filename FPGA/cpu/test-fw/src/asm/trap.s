@@ -19,13 +19,27 @@ _start:
     csrrs x23, mie, x0             /* verify x23 = 0x00000800 */
 
     /* ================================================================
-     * Synchronous ECALL trap
+     * Synchronous ECALL trap; preceding store must retire
      * ================================================================ */
-    lui   x4, %hi(0x0000beef)
-    addi  x4, x4, %lo(0x0000beef)    /* verify x4  = pre-trap marker */
+    lui   x1,  %hi(_sram_start)
+    addi  x1,  x1,  %lo(_sram_start) /* verify x1  = SRAM base */
+    lui   x4,  %hi(0x0000beef)
+    addi  x4,  x4,  %lo(0x0000beef)  /* verify x4  = pre-trap marker */
+    sw    x4,  0(x1)
     ecall
-    addi  x17, x0, 0x567             /* verify x17 = post-mret marker */
-    addi  x6,  x2,  0                 /* verify x6  = mepc saved by trap handler */
+    addi  x17, x0,  0x567            /* verify x17 = post-mret marker */
+    addi  x6,  x2,  0                /* verify x6  = mepc saved by trap handler */
+    lw    x5,  0(x1)                 /* verify x5  = 0x0000beef */
+
+    /* Software-written mepc + mret (no ecall) */
+    addi  x28, x0,  0x711            /* verify x28 = 0x00000711 */
+    auipc x27, 0
+    addi  x27, x27, 20
+    csrrw x0,  mepc, x27
+    mret
+    addi  x28, x0,  -1
+sw_mret_tgt:
+    addi  x29, x0,  0x722            /* verify x29 = 0x00000722 */
 
     /* ================================================================
      * External interrupt (cpu_tb asserts ext_irq at _irq_wait when +CPUTEST_IRQ)
@@ -57,6 +71,7 @@ _trap_handler:
     csrrw x0,  mepc, x3
     csrrs x14, mcause, x0             /* verify x14 = 0x0000000B (sync ecall) */
     csrrs x20, mstatus, x0            /* verify x20 = mie cleared, mpie saved */
+    lw    x16, 0(x1)                  /* verify x16 = 0x0000beef, store retired */
     mret
 
 _irq_handler:

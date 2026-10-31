@@ -29,11 +29,24 @@ _start:
     addi  x26, x0,  31
     sll   x20, x3,  x26      /* verify x20 = 0x80000000 */
     sll   x23, x4,  x26      /* verify x23 = 0x00000000 */
-    srl   x24, x1,  x26      /* verify x24 = 0x00000001 */
+    srl   x24, x1,  x26      /* verify x24 = 0x00000000 */
     sra   x25, x2,  x26      /* verify x25 = 0xffffffff */
     slli  x27, x1,  31       /* verify x27 = 0x80000000 */
     srli  x28, x2,  31       /* verify x28 = 0x00000001 */
     srai  x29, x2,  31       /* verify x29 = 0xffffffff */
+
+    /* Snapshot shift-by-0 / shamt=31 dests before reuse. */
+    lui   x30, %hi(_sram_start)
+    sw    x17, 0(x30)
+    sw    x18, 4(x30)
+    sw    x19, 8(x30)
+    sw    x26, 12(x30)
+
+    /* Register shift amount with bit 5 set: shamt=32 uses [4:0]=0 */
+    addi  x26, x0,  32       /* verify x26 = 0x00000020 */
+    sll   x17, x3,  x26      /* verify x17 = 0xffffffff */
+    srl   x18, x2,  x26      /* verify x18 = 0x80000000 */
+    sra   x19, x2,  x26      /* verify x19 = 0x80000000 */
 
     slti  x30, x2,  -1       /* verify x30 = 0x00000001 */
     sltiu x31, x3,  -1       /* verify x31 = 0x00000000 */

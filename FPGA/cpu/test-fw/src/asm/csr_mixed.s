@@ -48,6 +48,18 @@ _start:
     load_mei x20
     csrrs x21, mie, x20      /* verify x21 = 0x00000088 (old mie); mie = all three = 0x888 */
 
+    /* Snapshot L1–G2 (and x2) before later blocks reuse those dests. */
+    sw    x11, 20(x1)
+    sw    x12, 24(x1)
+    sw    x13, 28(x1)
+    sw    x14, 32(x1)
+    sw    x15, 36(x1)
+    sw    x16, 40(x1)
+    sw    x17, 44(x1)
+    sw    x19, 48(x1)
+    sw    x21, 52(x1)
+    sw    x2,  56(x1)
+
     /* --- B1: CSRRS rd -> beq taken (branch uses CSR readback) --- */
     csrrs x22, mie, x0       /* verify x22 = 0x00000888 */
     load_all x23

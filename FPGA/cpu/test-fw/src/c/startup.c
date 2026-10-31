@@ -23,6 +23,7 @@ void test_data(void) {
 int main(void) {
     test_data();
 
+    signal_pass();
     infinite_loop();
     return 0;
 }

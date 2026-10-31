@@ -12,6 +12,7 @@ void write_result(uint32_t index, uint32_t value) {
 int main(void) {
     write_result(0, 0xaf6d87d2);
     write_result(1, 0x87654321);
+    signal_pass();
     infinite_loop();
     return 0;
 }

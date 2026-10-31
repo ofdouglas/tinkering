@@ -742,10 +742,6 @@ always_comb begin
     mem_size = mem_size_e'(execute_regs.funct_3[1:0]);
     zero_extend = (execute_regs.funct_3[2] == LOAD_UNSIGNED);
 
-    memory_stall = (mem_stage_is_store || mem_stage_is_load)
-                   && (!mem_response_wait || !mem_response_ready)
-                   && !mem_fault;
-
     case (mem_size)
         MEM_BYTE : begin
             byte_lanes = 1'b0001 << execute_regs.exec_result[1:0];
@@ -777,6 +773,10 @@ always_comb begin
         default : shifted_rd_data = rd_data;
     endcase
 end
+
+assign memory_stall = (mem_stage_is_store || mem_stage_is_load)
+                      && (!mem_response_wait || !mem_response_ready)
+                      && !mem_fault;
 
 always_ff @(posedge clk) begin
     if (!rst_n) begin

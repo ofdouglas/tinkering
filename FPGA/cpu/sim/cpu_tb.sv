@@ -47,7 +47,7 @@ module cpu_tb;
     bit irq_armed = 1'b0;
     bit irq_done = 1'b0;
     int unsigned irq_settle_cycles = 0;
-    localparam logic [31:0] IRQ_WAIT_PC = TEST_ROM_BASE + 32'h0000_003c;
+    localparam logic [31:0] IRQ_WAIT_PC = TEST_ROM_BASE + 32'h0000_0068;
 
     logic [31:0] instruction_rom [0:ROM_WORDS-1];
     logic [31:0] expected_registers [0:NUM_REGS-1];
@@ -327,13 +327,21 @@ module cpu_tb;
 
     task automatic check_cputest_registers;
         int unsigned mismatch_count;
+        int unsigned start_i;
+        int unsigned end_i;
 
+        // C tests: Verilator 2-state turns xxxxxxxx into 0, so only x30/x31
+        // (ASSERT / signal_pass) are compared when SKIP_REGS is set.
         if (skip_register_check) begin
-            return;
+            start_i = 30;
+            end_i = 31;
+        end else begin
+            start_i = 1;
+            end_i = NUM_REGS - 1;
         end
 
         mismatch_count = 0;
-        for (int i = 1; i < NUM_REGS; i++) begin
+        for (int i = start_i; i <= end_i; i++) begin
             logic [31:0] actual;
             logic [31:0] expected;
 
@@ -443,7 +451,7 @@ module cpu_tb;
                 if (!skip_register_check) begin
                     $display("[%0t] PASS: CPU test firmware register results verified", $time);
                 end else begin
-                    $display("[%0t] PASS: CPU test firmware register check skipped", $time);
+                    $display("[%0t] PASS: CPU test firmware x30/x31 status verified", $time);
                 end
                 if (sram_expected_loaded) begin
                     $display("[%0t] PASS: CPU test firmware SRAM contents verified", $time);

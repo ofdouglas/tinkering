@@ -78,6 +78,7 @@ int main(void) {
         write_result(i, crc32_word(test_data[i]));
     }
 
+    signal_pass();
     infinite_loop();
     return 0;
 }

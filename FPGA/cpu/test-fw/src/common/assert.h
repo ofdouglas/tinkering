@@ -19,6 +19,18 @@ inline void infinite_loop() {
     }
 }
 
+void signal_pass(void);
+inline void signal_pass(void) {
+    __asm__ volatile (
+        "lui   x30, 0x12341\n\t"
+        "addi  x30, x30, 0x234\n\t"
+        "addi  x31, x0, 0"
+        :
+        :
+        : "x30", "x31"
+    );
+}
+
 void terminate_handler(uint32_t line_number) __attribute__((noreturn));
 inline void terminate_handler(uint32_t line_number) {
     __asm__ volatile (
