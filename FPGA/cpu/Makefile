@@ -9,7 +9,7 @@ help:
 	@echo "CPU/SoC tests"
 	@echo ""
 	@echo "  make test                 Run test-fw (cpu_tb) and system_tb"
-	@echo "  make cputest              Run cpu/test-fw Verilator tests"
+	@echo "  make cputest              Run cpu/test-fw Verilator tests (MEM_LATENCY=1,2,4)"
 	@echo "  make sim-system           Run system_tb (Verilator, builds firmware)"
 	@echo "  make sim-system-vivado    Run system_tb in Vivado xsim"
 	@echo "  make firmware             Build demo firmware hex"
@@ -21,6 +21,10 @@ test: cputest sim-system
 cputest:
 	@echo "=== cpu_tb (test-fw) ==="
 	$(MAKE) -C test-fw sim
+	@echo "=== cpu_tb (test-fw) MEM_LATENCY=2 ==="
+	$(MAKE) -C test-fw sim MEM_LATENCY=2
+	@echo "=== cpu_tb (test-fw) MEM_LATENCY=4 ==="
+	$(MAKE) -C test-fw sim MEM_LATENCY=4
 
 sim-system sim-system-verilator: firmware
 	@echo "=== system_tb (Verilator) ==="

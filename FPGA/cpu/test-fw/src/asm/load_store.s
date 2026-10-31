@@ -97,6 +97,31 @@ _start:
     sh    x7,  78(x1)
     lw    x9,  76(x1)        /* verify x9  = 0x00cd2022 */
 
+    /* --- Byte lane 2 (addr[1:0] == 2) --- */
+    lui   x6,  0xA1A2A
+    addi  x6,  x6,  0x3A4    /* 0xa1a2a3a4 */
+    sw    x6,  80(x1)
+    addi  x7,  x0,  0x12
+    sb    x7,  82(x1)
+    lbu   x25, 82(x1)        /* verify x25 = 0x00000012 */
+    lb    x26, 82(x1)        /* verify x26 = 0x00000012 */
+    lw    x8,  80(x1)        /* verify x8  = 0xa112a3a4 */
+
+    addi  x7,  x0,  -128
+    sb    x7,  82(x1)
+    lb    x28, 82(x1)        /* verify x28 = 0xffffff80 */
+    lbu   x29, 82(x1)        /* verify x29 = 0x00000080 */
+    lw    x6,  80(x1)        /* verify x6  = 0xa180a3a4 */
+
+    /* --- ALU result as store/load address (rs1), no gap --- */
+    lui   x3,  0x11223
+    addi  x3,  x3,  0x344    /* verify x3  = 0x11223344 */
+    addi  x2,  x1,  84
+    sw    x3,  0(x2)
+    lw    x31, 84(x1)        /* verify x31 = 0x11223344 */
+    addi  x27, x1,  84       /* verify x27 = SRAM+84 */
+    lw    x30, 0(x27)        /* verify x30 = 0x11223344 */
+
     /* Final SRAM layout (see expected/load_store.sram):
      *   word  0 @ 0x10000 = 0xdb975000
      *   word  1 @ 0x10004 = 0xf30000c0
@@ -118,6 +143,8 @@ _start:
      *   word 17 @ 0x10044 = 0xa5a505a5
      *   word 18 @ 0x10048 = 0x11111099
      *   word 19 @ 0x1004c = 0x00cd2022
+     *   word 20 @ 0x10050 = 0xa180a3a4
+     *   word 21 @ 0x10054 = 0x11223344
      */
     /* Wait for all test results to reach registers */
     nop

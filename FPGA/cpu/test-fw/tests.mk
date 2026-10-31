@@ -1,4 +1,4 @@
-ASM_TESTS := basic_alu pipelined_alu alu_boundary branch load_store load_use jump_lui_auipc csr_basic csr_immediate csr_mixed trap illegal
+ASM_TESTS := basic_alu pipelined_alu alu_boundary branch branch_equal load_store load_use jump_lui_auipc jal_link_use csr_basic csr_immediate csr_mixed csr_rd_use trap illegal
 C_TESTS   := crc store_hazard startup
 TESTS     := $(ASM_TESTS) $(C_TESTS)
 
@@ -8,7 +8,7 @@ SKIP_REGS_TESTS := crc store_hazard startup
 # Spike runs the same CPU-test ELF layout as cpu_tb. Skip tests where RTL does not
 # yet match Spike.
 # TODO: fix discrepancies and remove items from the list.
-SPIKE_SKIP_TESTS := csr_basic csr_immediate csr_mixed trap illegal
+SPIKE_SKIP_TESTS := csr_basic csr_immediate csr_mixed csr_rd_use trap illegal
 
 # Tests with an expected/$(test).sram file get SRAM checks; word count is derived from that file at sim time.
 SRAM_TESTS := $(patsubst expected/%.sram,%,$(wildcard expected/*.sram))

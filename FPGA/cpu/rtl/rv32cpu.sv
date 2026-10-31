@@ -183,7 +183,7 @@ always_comb begin
     if (rs1_reg_select == '0) begin
         rs1_reg_mux = '0;
     end else if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == rs1_reg_select) begin
-        rs1_reg_mux = memory_regs.wb_ctrl.csr_read ? memory_regs.csr_read_data : memory_regs.writeback_data;
+        rs1_reg_mux = memory_rd_data(memory_regs);
     end else begin
         rs1_reg_mux = x_register_file[rs1_reg_select];
     end
@@ -191,7 +191,7 @@ always_comb begin
     if (rs2_reg_select == '0) begin
         rs2_reg_mux = '0;
     end else if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == rs2_reg_select) begin
-        rs2_reg_mux = memory_regs.writeback_data;
+        rs2_reg_mux = memory_rd_data(memory_regs);
     end else begin
         rs2_reg_mux = x_register_file[rs2_reg_select];
     end
@@ -539,9 +539,9 @@ always_comb begin
     case (decode_regs.alu_ctrl.alu_left_src)
         ALU_LEFT_SRC_RS1: begin
             if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs1_index)) begin
-                alu_left = execute_regs.exec_result;
+                alu_left = execute_rd_data(execute_regs);
             end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs1_index)) begin
-                alu_left = memory_regs.writeback_data;
+                alu_left = memory_rd_data(memory_regs);
             end else begin
                 alu_left = decode_regs.rs1_reg;
             end
@@ -559,9 +559,9 @@ always_comb begin
     case (decode_regs.alu_ctrl.alu_right_src)
         ALU_RIGHT_SRC_RS2: begin
             if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
-                alu_right = execute_regs.exec_result;
+                alu_right = execute_rd_data(execute_regs);
             end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
-                alu_right = memory_regs.writeback_data;
+                alu_right = memory_rd_data(memory_regs);
             end else begin
                 alu_right = decode_regs.rs2_reg;
             end
@@ -579,9 +579,9 @@ always_comb begin
     if (decode_regs.csr_instruction) begin
         rs2_store_value = decode_regs.csr_read;
     end else if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
-        rs2_store_value = execute_regs.exec_result;
+        rs2_store_value = execute_rd_data(execute_regs);
     end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
-        rs2_store_value = memory_regs.writeback_data;
+        rs2_store_value = memory_rd_data(memory_regs);
     end else begin
         rs2_store_value = decode_regs.rs2_reg;
     end
@@ -717,10 +717,10 @@ logic mem_stage_is_store;
 logic mem_response_ready;
 logic mem_fault;
 
-assign valid = execute_regs.valid && execute_regs.mem_ctrl.memory_request;
+assign valid = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !mem_response_wait;
 assign wr_data = shifted_wr_data;
 assign addr = execute_regs.exec_result[31:2];
-assign wr_strobe = (execute_regs.valid && execute_regs.mem_ctrl.memory_write) ? byte_lanes : '0;
+assign wr_strobe = (valid && execute_regs.mem_ctrl.memory_write) ? byte_lanes : '0;
 assign mem_stage_is_store  = execute_regs.valid && execute_regs.mem_ctrl.memory_request && execute_regs.mem_ctrl.memory_write;
 assign mem_stage_is_load   = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !execute_regs.mem_ctrl.memory_write;
 assign mem_response_ready  = (mem_stage_is_store && wr_ack) || (mem_stage_is_load && rd_valid);
@@ -734,7 +734,7 @@ always_comb begin
 
     mem_wb_hazard = memory_regs.valid && memory_regs.wb_ctrl.writeback_en && memory_regs.wb_ctrl.rd_reg_select != '0;
     if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == execute_regs.rs2_index) begin
-        rs2_reg_mux = memory_regs.writeback_data;
+        rs2_reg_mux = memory_rd_data(memory_regs);
     end else begin
         rs2_reg_mux = execute_regs.rs2_csr_reg;
     end
@@ -807,7 +807,7 @@ always_ff @(posedge clk) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// Stage 4B: Special Registers
+// Stage 4B: Exception Control and Special Registers
 ///////////////////////////////////////////////////////////////////////////////
 logic [31:0] mcause_data;
 logic [31:0] mtval_data;
@@ -929,25 +929,13 @@ end
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 5  Writeback
 ///////////////////////////////////////////////////////////////////////////////
-logic [31:0] xregs_wb_data;
-
-always_comb begin
-    // Writeback to X-Register File: CSR, JALR, or ALU/Load results
-    if (memory_regs.wb_ctrl.csr_read) begin
-        xregs_wb_data = memory_regs.csr_read_data;
-    end else if (memory_regs.jump_branch_ctrl.is_jump_instr) begin
-        xregs_wb_data = memory_regs.pc_plus4;
-    end else begin
-        xregs_wb_data = memory_regs.writeback_data;
-    end
-end
 
 // X-Register File
 always_ff @(posedge clk) begin
     if (!memory_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
         if (memory_regs.wb_ctrl.rd_reg_select != '0) begin
             // Writeback of ALU result, Load data, or CSR read data
-            x_register_file[memory_regs.wb_ctrl.rd_reg_select] <= xregs_wb_data;
+            x_register_file[memory_regs.wb_ctrl.rd_reg_select] <= memory_rd_data(memory_regs);
         end
     end
 end

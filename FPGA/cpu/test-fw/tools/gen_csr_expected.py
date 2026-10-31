@@ -227,9 +227,35 @@ def sim_csr_mixed():
     return r
 
 
+def sim_csr_rd_use():
+    r = Regs()
+    r.x[9] = 0x10000000
+    r.x[2] = W_MSI
+    r.x[1], r.mie = csrrw_mie(r.mie, W_MSI)
+    r.x[3] = r.x[1] + 1
+    r.x[4] = W_MTI
+    r.x[5], r.mie = csrrw_mie(r.mie, W_MTI)
+    r.x[6] = r.x[5] + 1
+    r.x[7], r.mie = csrrwi_mie(r.mie, 8, True)
+    r.x[8] = r.x[7] + 1
+    r.x[10] = W_MTI
+    r.x[11], r.mie = csrrw_mie(r.mie, W_MTI)
+    r.ram[0] = r.x[11]
+    r.x[12] = r.ram[0]
+    r.x[13], r.mie = csrrw_mie(r.mie, 0)
+    r.x[16] = W_MSI
+    r.x[17], r.mie = csrrw_mie(r.mie, W_MSI)
+    r.x[15] = 0xBE
+    r.x[18] = 0xBF
+    r.x[20], r.mie = csrrw_mie(r.mie, 0)
+    r.x[21] = 0xC0
+    return r
+
+
 if __name__ == "__main__":
     root = Path(__file__).resolve().parent.parent / "expected"
     sim_csr_basic().dump_expected(root / "csr_basic.regs")
     sim_csr_immediate().dump_expected(root / "csr_immediate.regs")
     sim_csr_mixed().dump_expected(root / "csr_mixed.regs")
+    sim_csr_rd_use().dump_expected(root / "csr_rd_use.regs")
     print("wrote expected/csr_*.regs")

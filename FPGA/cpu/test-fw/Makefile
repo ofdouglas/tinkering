@@ -101,7 +101,7 @@ sim: build $(SIM_BIN)
 	exit $$failed
 
 $(SIM_BIN): $(RTL_SRCS) | $(SIM_DIR)
-	verilator --binary -sv --timing -Wno-TIMESCALEMOD \
+	verilator --binary -sv --timing -Wno-TIMESCALEMOD -Wno-UNOPTFLAT \
 		--top-module cpu_tb --Mdir $(SIM_DIR) $(RTL_SRCS)
 
 $(SIM_DIR) $(BUILD_DIR) $(MEM_DIR):

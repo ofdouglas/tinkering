@@ -412,6 +412,28 @@ typedef struct packed {
     WritebackControls  wb_ctrl;
 } MemoryStageRegs;
 
+// Architectural rd value for forwarding / writeback. Matches the WB mux:
+// CSR rd is the old CSR, JAL/JALR rd is PC+4, otherwise ALU/load data.
+function automatic logic [31:0] execute_rd_data(ExecuteStageRegs ex);
+    if (ex.wb_ctrl.csr_read) begin
+        return ex.rs2_csr_reg;
+    end
+    if (ex.jump_branch_ctrl.is_jump_instr) begin
+        return ex.current_pc + 32'd4;
+    end
+    return ex.exec_result;
+endfunction
+
+function automatic logic [31:0] memory_rd_data(MemoryStageRegs mem);
+    if (mem.wb_ctrl.csr_read) begin
+        return mem.csr_read_data;
+    end
+    if (mem.jump_branch_ctrl.is_jump_instr) begin
+        return mem.pc_plus4;
+    end
+    return mem.writeback_data;
+endfunction
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // Machine Trap Control and Status Registers
