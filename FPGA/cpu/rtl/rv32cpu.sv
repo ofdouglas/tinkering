@@ -14,7 +14,7 @@ module rv32cpu #(
     input  logic                fetch_fault,
     input  logic                load_fault,
     input  logic                store_fault,
-    input  logic                store_unaligned,
+    input  logic                store_unaligned,  // TODO: unaligned for either load or store
     input  logic                mei_irq, // MEI IRQ
     input  logic                mti_irq, // Machine Timer IRQ   
 
@@ -43,30 +43,46 @@ DecodeStageRegs      decode_regs;   // Pipeline Stage 2 results
 ExecuteStageRegs     execute_regs;  // Pipeline Stage 3 results
 MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 
+
 ///////////////////////////////////////////////////////////////////////////////
 // Control Signals (Combinatorial)
 ///////////////////////////////////////////////////////////////////////////////
-CpuControl         cpu_ctrl;
 
-logic mti_armed, mei_armed, external_interrupt, external_exception;
-assign mti_armed = mti_irq && machine_special_regs.mie.mti_enable;
-assign mei_armed = mei_irq && machine_special_regs.mie.mei_enable;
-// TODO: latch pending interrupts until mem_stall is cleared
-assign external_interrupt = (machine_special_regs.mstatus.mie && (mei_armed || mti_armed)) && !cpu_ctrl.mem_stall;
-assign external_exception = fetch_fault || load_fault || store_fault || store_unaligned;
+// NOP the ID instruction; decode it again next cycle. Pause IF.
+logic decode_stall; // AKA pipeline bubble
 
-logic exception_entry;
-assign exception_entry = cpu_ctrl.decode_trap || external_interrupt || external_exception || cpu_ctrl.illegal_instruction;
+// Discard IF and ID
+logic branch_redirect_taken;
+logic [31:0]  branch_pc;
+
+// Pause everything
+logic memory_stall;
+
+// Resolved in MEM stage. Flushes IF/ID/EX.
+logic exception_entry;  // includes external interrupts
+logic exception_return;
+
+// Pipeline stage flush signals
+logic flush_if_id_stages;
+logic flush_ex_stage;
+
+// TODO (later optimization): some instructions are safe to retire after an interrupt is started.
+// Ex: an ALU operation in EX doesn't need to be flushed when entering an interrupt.
+assign flush_if_id_stages = exception_entry || exception_return || branch_redirect_taken;
+assign flush_ex_stage     = exception_entry || exception_return;
+
+
+// Interrupt Pending Signals
+logic mti_armed, mei_armed, external_interrupt;
+assign mti_armed          = mti_irq && machine_special_regs.mie.mti_enable;
+assign mei_armed          = mei_irq && machine_special_regs.mie.mei_enable;
+assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed);
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 1: Instruction Fetch
 ///////////////////////////////////////////////////////////////////////////////
 logic [31:0] next_pc, pc_plus4;
-logic instruction_flush;
-logic branch_redirect_taken;
-
-
-assign instruction_flush = external_interrupt || external_exception || cpu_ctrl.decode_trap || cpu_ctrl.exception_return || branch_redirect_taken;
 
 // Address generation
 always_comb begin
@@ -75,10 +91,10 @@ always_comb begin
 
     if (exception_entry) begin
         next_pc = {machine_special_regs.mtvec.base, 2'b00};
-    end else if (cpu_ctrl.exception_return) begin
+    end else if (exception_return) begin
         next_pc = machine_special_regs.mepc;
     end else if (branch_redirect_taken) begin
-        next_pc = cpu_ctrl.branch_pc;
+        next_pc = branch_pc;
     end else begin
         next_pc = pc_plus4;
     end
@@ -89,21 +105,25 @@ always_ff @(posedge clk) begin
         fetch_regs <= '0;
         fetch_regs.current_pc <= RESET_PC;
         fetch_regs.fetch_pc <= RESET_PC;
-    end else if (exception_entry || (!cpu_ctrl.decode_flush && !cpu_ctrl.mem_stall)) begin
+    end else if (memory_stall || decode_stall) begin
+        fetch_regs <= fetch_regs;
+    end else begin
         fetch_regs.unaligned_pc <= next_pc[1:0] != '0;
+        fetch_regs.valid <= 1'b0;
+        fetch_regs.access_fault <= fetch_fault; // TODO: this and valid at the same time?
 
-        fetch_regs.valid <= fetch_valid && !instruction_flush;
-
-        if (instruction_flush) begin
+        if (flush_if_id_stages) begin
             fetch_regs.current_pc <= next_pc;
             fetch_regs.fetch_pc <= next_pc;
             // Prevent a stale instruction from being decoded again before the
             // redirected fetch returns its replacement word.
             fetch_regs.instruction <= 32'h0000_0013;
+            fetch_regs.valid <= 1'b0;
         end else if (fetch_valid) begin
             fetch_regs.current_pc  <= next_pc;
             fetch_regs.fetch_pc    <= fetch_regs.current_pc;
             fetch_regs.instruction <= instruction_fetch;
+            fetch_regs.valid <= 1'b1;
         end
     end
 end
@@ -136,6 +156,7 @@ AluControls        alu_ctrl;
 JumpBranchControls jump_branch_ctrl;
 MemoryControls     mem_ctrl;
 WritebackControls  wb_ctrl;
+If_Id_Traps        if_id_traps;
 logic              csr_instruction;
 logic              csr_wb_hazard;
 logic              csr_wb_stall; // Stall on repeated access to same CSR
@@ -145,9 +166,7 @@ logic              invalid_csr_write_address;
 assign csr_instruction = (opcode == OPCODE_SYSTEM && funct_3 != system_funct3_e'(SYS3_OTHER));
 
 assign csr_wb_hazard = (decode_regs.valid && decode_regs.wb_ctrl.csr_writeback_en && decode_regs.wb_ctrl.csr_address == csr_address) ||
-                       (execute_regs.valid && execute_regs.wb_ctrl.csr_writeback_en && execute_regs.wb_ctrl.csr_address == csr_address) ||
-                       // TODO: get rid of this, CSR writes retire in Memory Stage
-                       (memory_regs.valid && memory_regs.wb_ctrl.csr_writeback_en && memory_regs.wb_ctrl.csr_address == csr_address); 
+                       (execute_regs.valid && execute_regs.wb_ctrl.csr_writeback_en && execute_regs.wb_ctrl.csr_address == csr_address);
 
 assign csr_wb_stall = csr_wb_hazard && csr_instruction;
 
@@ -161,7 +180,7 @@ always_comb begin
     if (rs1_reg_select == '0) begin
         rs1_reg_mux = '0;
     end else if (mem_wb_hazard && memory_regs.wb_ctrl.rd_reg_select == rs1_reg_select) begin
-        rs1_reg_mux = memory_regs.writeback_data;
+        rs1_reg_mux = memory_regs.wb_ctrl.csr_read ? memory_regs.csr_read_data : memory_regs.writeback_data;
     end else begin
         rs1_reg_mux = x_register_file[rs1_reg_select];
     end
@@ -181,7 +200,7 @@ always_comb begin
         load_use_hazard = 1'b0;
     end
 
-    cpu_ctrl.decode_flush = load_use_hazard || csr_wb_stall;
+    decode_stall = load_use_hazard || csr_wb_stall;
 
     // Assemble immediate value
     case (opcode_e'(opcode))
@@ -249,13 +268,15 @@ end
 
 // Decode instruction, set controls/operands
 always_comb begin
-    cpu_ctrl.illegal_instruction = 1'b0;
-    cpu_ctrl.invalid_opcode    = 1'b0;
-    cpu_ctrl.decode_trap       = 1'b0;
-    cpu_ctrl.exception_return  = 1'b0;
-    alu_ctrl          = '0;
-    alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
-    alu_ctrl.alu_left_src = ALU_LEFT_SRC_DONT_CARE;
+    if_id_traps.fetch_access_fault    = fetch_regs.access_fault;
+    if_id_traps.fetch_alignment_fault = fetch_regs.access_fault && fetch_regs.unaligned_pc;
+    if_id_traps.illegal_instruction   = 1'b0;
+    if_id_traps.mret_instruction      = 1'b0;
+    if_id_traps.ecall_instruction     = 1'b0;
+
+    alu_ctrl               = '0;
+    alu_ctrl.alu_mux_ctrl  = ALU_MUX_DEFAULT;
+    alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
     alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
     jump_branch_ctrl  = '0;
     mem_ctrl          = '0;
@@ -378,26 +399,26 @@ always_comb begin
         OPCODE_FENCE: begin
             alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
             alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
-            cpu_ctrl.invalid_opcode = 1'b1; // Not implemented yet
+            if_id_traps.illegal_instruction = 1'b1; // Not implemented yet
         end
         OPCODE_SYSTEM: begin
             case (system_funct3_e'(funct_3))
                 SYS3_OTHER: begin
                     case (system_funct12_e'(funct_12))
                         SYS12_MRET: begin
-                            cpu_ctrl.exception_return = 1'b1;
+                            if_id_traps.mret_instruction = 1'b1;
                         end
                         SYS12_WFI: begin
-                            cpu_ctrl.invalid_opcode = 1'b1;
+                            if_id_traps.illegal_instruction = 1'b1;
                         end
                         SYS12_ECALL: begin
-                            cpu_ctrl.decode_trap = 1'b1;
+                            if_id_traps.ecall_instruction = 1'b1;
                         end
                         SYS12_EBREAK: begin
-                            cpu_ctrl.invalid_opcode = 1'b1;
+                            if_id_traps.illegal_instruction = 1'b1;
                         end
                         default: begin
-                            cpu_ctrl.invalid_opcode = 1'b1;
+                            if_id_traps.illegal_instruction = 1'b1;
                         end
                     endcase
                 end
@@ -456,29 +477,24 @@ always_comb begin
                     wb_ctrl.csr_writeback_en = (rs1_reg_select == '0) ? 1'b0 : 1'b1;
                 end
                 default: begin
-                    cpu_ctrl.invalid_opcode = 1'b1;
+                    if_id_traps.illegal_instruction = 1'b1;
                 end
             endcase
         end
         default: begin
-            cpu_ctrl.invalid_opcode = 1'b1;
+            if_id_traps.illegal_instruction = 1'b1;
             alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
             alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
         end
     endcase
-
-    cpu_ctrl.illegal_instruction = cpu_ctrl.invalid_opcode && fetch_regs.valid && !branch_redirect_taken;
 end
 
 always_ff @(posedge clk) begin
-    logic flush_instruction;
-    flush_instruction = branch_redirect_taken || cpu_ctrl.illegal_instruction;
-
     if (!rst_n) begin
         decode_regs <= '0;
-    end else if (cpu_ctrl.mem_stall) begin
+    end else if (memory_stall) begin
         decode_regs <= decode_regs;
-    end else if (cpu_ctrl.decode_flush || cpu_ctrl.invalid_opcode) begin
+    end else if (decode_stall || flush_if_id_stages) begin
         decode_regs <= '0;
     end else begin
         // Data path
@@ -492,12 +508,13 @@ always_ff @(posedge clk) begin
         decode_regs.csr_instruction        <= csr_instruction;
 
         // Control path
-        decode_regs.valid                  <= fetch_regs.valid && !flush_instruction;
+        decode_regs.valid                  <= fetch_regs.valid;
         decode_regs.funct_3                <= funct_3;
         decode_regs.alu_ctrl               <= alu_ctrl;
         decode_regs.jump_branch_ctrl       <= jump_branch_ctrl;
         decode_regs.mem_ctrl               <= mem_ctrl;
         decode_regs.wb_ctrl                <= wb_ctrl;
+        decode_regs.if_id_traps            <= if_id_traps;
     end
 end
 
@@ -644,7 +661,7 @@ always_comb begin
     // JALR uses rs1 + immediate; all other branching uses PC + immediate
     base_address = decode_regs.jump_branch_ctrl.is_jump_register_instr ? alu_left[31:0] : decode_regs.current_pc[31:0];
     address_sum = base_address + decode_regs.immediate[31:0];
-    cpu_ctrl.branch_pc = {address_sum[31:1], 1'b0};
+    branch_pc = {address_sum[31:1], 1'b0};
 
     branch_taken = decode_regs.jump_branch_ctrl.is_branch_instr && compare_result;
     branch_redirect_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr);
@@ -665,7 +682,11 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         execute_regs <= '0;
-    end else if (!cpu_ctrl.mem_stall) begin
+    end else if (memory_stall) begin
+        execute_regs <= execute_regs;
+    end else if (flush_ex_stage) begin
+        execute_regs <= '0;
+    end else begin
         execute_regs.exec_result      <= alu_result;
         // Forward unmodified rs2 for store instructions, unmodified PC for JAL/JALR
         execute_regs.rs2_csr_reg      <= rs2_store_value;
@@ -677,8 +698,7 @@ always_ff @(posedge clk) begin
         execute_regs.jump_branch_ctrl <= decode_regs.jump_branch_ctrl;
         execute_regs.mem_ctrl         <= decode_regs.mem_ctrl;
         execute_regs.wb_ctrl          <= decode_regs.wb_ctrl;
-    end else begin
-        execute_regs <= execute_regs;
+        execute_regs.if_id_traps      <= decode_regs.if_id_traps;
     end
 end
 
@@ -692,14 +712,16 @@ logic mem_response_wait;
 logic mem_stage_is_load;
 logic mem_stage_is_store;
 logic mem_response_ready;
+logic mem_fault;
 
 assign valid = execute_regs.valid && execute_regs.mem_ctrl.memory_request;
 assign wr_data = shifted_wr_data;
 assign addr = execute_regs.exec_result[31:2];
 assign wr_strobe = (execute_regs.valid && execute_regs.mem_ctrl.memory_write) ? byte_lanes : '0;
-assign mem_stage_is_store = execute_regs.valid && execute_regs.mem_ctrl.memory_request && execute_regs.mem_ctrl.memory_write;
-assign mem_stage_is_load = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !execute_regs.mem_ctrl.memory_write;
-assign mem_response_ready = (mem_stage_is_store && wr_ack) || (mem_stage_is_load && rd_valid);
+assign mem_stage_is_store  = execute_regs.valid && execute_regs.mem_ctrl.memory_request && execute_regs.mem_ctrl.memory_write;
+assign mem_stage_is_load   = execute_regs.valid && execute_regs.mem_ctrl.memory_request && !execute_regs.mem_ctrl.memory_write;
+assign mem_response_ready  = (mem_stage_is_store && wr_ack) || (mem_stage_is_load && rd_valid);
+assign mem_fault           = (mem_stage_is_store && store_fault) || (mem_stage_is_load && load_fault);
 
 always_comb begin
     logic [31:0] rs2_reg_mux;
@@ -717,9 +739,9 @@ always_comb begin
     mem_size = mem_size_e'(execute_regs.funct_3[1:0]);
     zero_extend = (execute_regs.funct_3[2] == LOAD_UNSIGNED);
 
-    cpu_ctrl.mem_stall = (mem_stage_is_store || mem_stage_is_load) && (!mem_response_wait || !mem_response_ready);
-    cpu_ctrl.mem_unaligned = 1'b0; // TODO:
-    cpu_ctrl.bus_error = 1'b0; // TODO:
+    memory_stall = (mem_stage_is_store || mem_stage_is_load) && (!mem_response_wait || !mem_response_ready);
+    // cpu_ctrl.mem_unaligned = 1'b0; // TODO:
+    // cpu_ctrl.bus_error = 1'b0; // TODO:
 
     case (mem_size)
         MEM_BYTE : begin
@@ -768,14 +790,16 @@ end
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         memory_regs <= '0;
-    end else if (!cpu_ctrl.mem_stall) begin
+    end else if (memory_stall) begin
+        memory_regs <= memory_regs;
+    end else if (!memory_stall) begin
         memory_regs.writeback_data <= (execute_regs.mem_ctrl.memory_request && !execute_regs.mem_ctrl.memory_write) ? shifted_rd_data : execute_regs.exec_result;
-        memory_regs.csr_read_data     <= execute_regs.rs2_csr_reg;
-        memory_regs.pc_plus4    <= execute_regs.current_pc + 32'd4; // JAL/JALR need PC+4
+        memory_regs.csr_read_data  <= execute_regs.rs2_csr_reg;
+        memory_regs.pc_plus4       <= execute_regs.current_pc + 32'd4; // JAL/JALR need PC+4
 
-        memory_regs.valid <= execute_regs.valid;
+        memory_regs.valid            <= execute_regs.valid && !exception_entry; // Skip WB for an instruction that caused a trap
         memory_regs.jump_branch_ctrl <= execute_regs.jump_branch_ctrl;
-        memory_regs.wb_ctrl <= execute_regs.wb_ctrl;
+        memory_regs.wb_ctrl          <= execute_regs.wb_ctrl;
     end
 end
 
@@ -784,70 +808,58 @@ end
 ///////////////////////////////////////////////////////////////////////////////
 logic [31:0] mcause_data;
 logic [31:0] mtval_data;
+logic [31:0] mepc_addr;
+If_Id_Traps  carried_traps;
+
+assign carried_traps = execute_regs.if_id_traps;
 
 // Determine trap type for mcause and trap value for mtval
 always_comb begin
-    // TODO: handle other trap types
-    if (cpu_ctrl.decode_trap) begin
-        mcause_data = write_mcause(0, TRAP_ECALL_M);
-        mtval_data = '0;
-    end else if (cpu_ctrl.illegal_instruction) begin
+    exception_entry  = 1'b0;
+    exception_return = 1'b0; // TODO: handle trap simultaneous to mret
+    mcause_data      = machine_special_regs.mcause;
+    mtval_data       = machine_special_regs.mtval;
+    mepc_addr        = execute_regs.current_pc;
+    // TODO: mtval_data
+
+    // Handle traps in program order (later pipeline stages first)
+    // Ex: An instruction fetch trap should be discarded if Decode generated a trap.
+    if (mem_fault && execute_regs.valid) begin
+        exception_entry  = 1'b1;
+        if (load_fault) begin
+            // TODO: unaligned trap
+            mcause_data = write_mcause(0, TRAP_LOAD_ACCESS_FAULT);
+        end else begin /* store_fault */
+            mcause_data = write_mcause(0, store_unaligned ? TRAP_STORE_ADDR_MISALIGNED : TRAP_STORE_ACCESS_FAULT);
+        end
+
+    end else if (carried_traps.illegal_instruction && execute_regs.valid) begin
+        exception_entry  = 1'b1;
         mcause_data = write_mcause(0, TRAP_ILLEGAL_INST);
-        // Debug encoding for illegal instruction traps:
-        // [31:24]=0xdb, [23:17]=opcode,
-        // [16]=fetch valid, [15]=decode valid, [14]=branch redirect,
-        // [13]=branch suppression term, [12]=invalid opcode,
-        // [11]=illegal instruction, [10]=fetch_valid input,
-        // [9]=instruction_flush, [8]=decode_flush, [7]=mem_stall,
-        // [6]=decode jump, [5]=decode jalr, [4]=decode branch,
-        // [3]=execute valid, [2]=external interrupt,
-        // [1]=decode trap, [0]=exception return.
-        mtval_data = {
-            8'hdb,
-            opcode,
-            fetch_regs.valid,
-            decode_regs.valid,
-            branch_redirect_taken,
-            (decode_regs.valid && branch_redirect_taken),
-            cpu_ctrl.invalid_opcode,
-            cpu_ctrl.illegal_instruction,
-            fetch_valid,
-            instruction_flush,
-            cpu_ctrl.decode_flush,
-            cpu_ctrl.mem_stall,
-            decode_regs.jump_branch_ctrl.is_jump_instr,
-            decode_regs.jump_branch_ctrl.is_jump_register_instr,
-            decode_regs.jump_branch_ctrl.is_branch_instr,
-            execute_regs.valid,
-            external_interrupt,
-            cpu_ctrl.decode_trap,
-            cpu_ctrl.exception_return
-        };
-    end else if (fetch_fault) begin
-        mcause_data = write_mcause(0, TRAP_INST_ACCESS_FAULT);
-        mtval_data = fetch_regs.fetch_pc;
-    end else if (load_fault) begin
-        mcause_data = write_mcause(0, TRAP_LOAD_ACCESS_FAULT);
-        mtval_data = execute_regs.exec_result;
-    end else if (store_fault) begin
-        mcause_data = write_mcause(0, TRAP_STORE_ACCESS_FAULT);
-        mtval_data = execute_regs.exec_result;
-    end else if (store_unaligned) begin
-        mcause_data = write_mcause(0, TRAP_STORE_ADDR_MISALIGNED);
-        mtval_data = execute_regs.exec_result;
-    end else if (external_interrupt && mei_armed) begin
-        mcause_data = write_mcause(1, IRQ_SRC_MEI);
-        mtval_data = '0;
-    end else if (external_interrupt && mti_armed) begin
-        mcause_data = write_mcause(1, IRQ_SRC_MTI);
-        mtval_data = '0;
-    end else begin
-        mcause_data = machine_special_regs.mcause;
-        mtval_data = machine_special_regs.mtval;
+
+    end else if (carried_traps.ecall_instruction && execute_regs.valid) begin
+        exception_entry  = 1'b1;
+        mcause_data = write_mcause(0, TRAP_ECALL_M); // TODO: U-mode and S-mode support
+
+    end else if (carried_traps.mret_instruction && execute_regs.valid) begin
+        exception_return = 1'b1;
+
+    end else if (carried_traps.fetch_access_fault && execute_regs.valid) begin
+        exception_entry  = 1'b1;
+        mcause_data = write_mcause(0, carried_traps.fetch_alignment_fault ? TRAP_INST_ADDR_MISALIGNED : TRAP_INST_ACCESS_FAULT);
+
+    end else if (external_interrupt) begin
+        exception_entry  = 1'b1;
+        // TODO: handle others, verify MTI
+        mcause_data = write_mcause(1, mei_armed ? IRQ_SRC_MEI : IRQ_SRC_MTI);
+
+        // TODO: is this correct if the branch is mispredicted?
+        // mepc_addr = decode_regs.current_pc;
     end
 end
 
 // Special Registers
+// TODO: fault on invalid CSR access
 always_ff @(posedge clk) begin
     logic [31:0] csr_regs_wb_data;
     logic        csr_writeback_en;
@@ -871,17 +883,22 @@ always_ff @(posedge clk) begin
         machine_special_regs.mtval   <= '0;
         machine_special_regs.mtvec   <= {30'd0, MTVEC_MODE_DIRECT};
         privilege_mode               <= PRIVILEGE_MODE_MACHINE;
-    end else if (cpu_ctrl.exception_return) begin
-        machine_special_regs.mstatus.mie  <= machine_special_regs.mstatus.mpie;
-        machine_special_regs.mstatus.mpie <= 1'b1;
+
+    end else if (memory_stall) begin
+        machine_special_regs         <= machine_special_regs;
+
     end else if (exception_entry) begin
         machine_special_regs.mstatus.mie  <= '0;
         machine_special_regs.mstatus.mpie <= machine_special_regs.mstatus.mie;
-        /* TODO: handle mepc for other trap types */
-        machine_special_regs.mepc         <= fetch_regs.fetch_pc;
+        machine_special_regs.mepc         <= mepc_addr;
         machine_special_regs.mcause       <= mcause_data;
         machine_special_regs.mtval        <= mtval_data;
-    end else if (!cpu_ctrl.mem_stall && csr_writeback_en) begin
+
+    end else if (exception_return) begin
+        machine_special_regs.mstatus.mie  <= machine_special_regs.mstatus.mpie;
+        machine_special_regs.mstatus.mpie <= 1'b1;
+
+    end else if (csr_writeback_en) begin
         case (csr_class_e'(csr_class_bits))
             CSR_CLASS_MACHINE_RW: begin
                 case (csr_machine_rw_offset_e'(csr_offset_bits))
@@ -906,8 +923,6 @@ always_ff @(posedge clk) begin
             default:   
                 invalid_csr_write_address = 1'b1;
         endcase
-    end else begin
-        machine_special_regs <= machine_special_regs;
     end
 end
 
@@ -929,7 +944,7 @@ end
 
 // X-Register File
 always_ff @(posedge clk) begin
-    if (!cpu_ctrl.mem_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
+    if (!memory_stall && memory_regs.valid && memory_regs.wb_ctrl.writeback_en) begin
         if (memory_regs.wb_ctrl.rd_reg_select != '0) begin
             // Writeback of ALU result, Load data, or CSR read data
             x_register_file[memory_regs.wb_ctrl.rd_reg_select] <= xregs_wb_data;

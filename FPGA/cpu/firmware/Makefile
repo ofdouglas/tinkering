@@ -7,7 +7,7 @@ INC_DIRS = . $(sort $(patsubst %/,%,$(dir $(wildcard */*.h)))) $(FIRMWARE_DIR)/t
 CFLAGS = $(ARCH) -O0 -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
 CPP_DISABLE_FLAGS = -fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables
 CPPFLAGS = $(CFLAGS) $(CPP_DISABLE_FLAGS)
-LDFLAGS = $(ARCH) -T linker/linker.ld -nostdlib -Wl,--print-memory-usage
+LDFLAGS = $(ARCH) -T linker/linker.ld -nostdlib -Wl,--build-id=none -Wl,--print-memory-usage
 
 # ELF addresses start at BOOT_ROM 0x00010000; make the Verilog image array-relative.
 HEX_ADDR_OFFSET = -0x00010000

@@ -1,7 +1,11 @@
 # Regenerate FPGA/vivado/cpu from tracked sources under FPGA/cpu/.
 # Usage:
-#   vivado -mode gui  FPGA/cpu/scripts/create_project.tcl
-#   vivado -mode batch FPGA/cpu/scripts/create_project.tcl
+#   vivado -mode gui   -source FPGA/cpu/scripts/create_project.tcl
+#   vivado -mode batch -source FPGA/cpu/scripts/create_project.tcl
+#
+# Vivado 2026.1 picks the first license tier in the .lic file. If Alveo is
+# listed first, Artix-7 parts are hidden. For this Nexys Video build:
+#   XILINXD_LICENSE_FILE=$HOME/.Xilinx_BASIC/Xilinx.lic vivado ...
 
 set script_dir [file dirname [file normalize [info script]]]
 set cpu_root   [file normalize [file join $script_dir ..]]
@@ -17,12 +21,30 @@ set board     digilentinc.com:nexys_video:part0:1.2
 file mkdir $vivado_dir
 create_project -force $proj_name $vivado_dir -part $part
 
-set board_repo [file normalize [file join $env(APPDATA) Xilinx Vivado 2025.2 xhub board_store xilinx_board_store]]
-if {[file isdirectory $board_repo]} {
+set board_repo_candidates [list]
+if {[info exists env(APPDATA)]} {
+    lappend board_repo_candidates \
+        [file normalize [file join $env(APPDATA) Xilinx Vivado 2026.1 xhub board_store xilinx_board_store]] \
+        [file normalize [file join $env(APPDATA) Xilinx Vivado 2025.2 xhub board_store xilinx_board_store]]
+}
+if {[info exists env(HOME)]} {
+    lappend board_repo_candidates \
+        [file normalize [file join $env(HOME) .Xilinx Vivado 2026.1 xhub board_store xilinx_board_store]] \
+        [file normalize [file join $env(HOME) .Xilinx Vivado 2025.2 xhub board_store xilinx_board_store]]
+}
+
+set board_repo ""
+foreach cand $board_repo_candidates {
+    if {[file isdirectory $cand]} {
+        set board_repo $cand
+        break
+    }
+}
+if {$board_repo ne ""} {
     set_property board_part_repo_paths $board_repo [current_project]
     set_property board_part $board [current_project]
 } else {
-    puts "WARNING: board repo not found at $board_repo — continuing without board_part"
+    puts "WARNING: board repo not found — continuing without board_part (part $part)"
 }
 
 create_ip -name clk_wiz -vendor xilinx.com -library ip -module_name clk_wiz_0
@@ -43,6 +65,7 @@ set rtl_files [list \
     [file join $rtl_dir block_sram.sv] \
     [file join $rtl_dir gpio.sv] \
     [file join $rtl_dir uart_periph.sv] \
+    [file join $rtl_dir rv32_machine_timers.sv] \
     [file join $rtl_dir system_peripherals.sv] \
     [file join $rtl_dir system.sv] \
     $rtl_shared \
@@ -55,10 +78,11 @@ foreach f [get_files -of_objects [get_filesets sources_1] *.sv] {
 }
 
 # Compile order: package -> interface -> modules (must precede block_rom)
-set fs [get_filesets sources_1]
-reorder_files -of_objects $fs -front [get_files -quiet [file join $rtl_dir cpu_config_pkg.sv]]
-reorder_files -of_objects $fs -after [get_files -quiet [file join $rtl_dir bus_interface.sv]] \
-    [get_files -quiet [file join $rtl_dir cpu_config_pkg.sv]]
+set pkg_sv [get_files -quiet [file join $rtl_dir cpu_config_pkg.sv]]
+set if_sv  [get_files -quiet [file join $rtl_dir bus_interface.sv]]
+if {$pkg_sv ne "" && $if_sv ne ""} {
+    reorder_files -fileset sources_1 -front [list $pkg_sv $if_sv]
+}
 
 update_compile_order -fileset sources_1
 
@@ -93,7 +117,13 @@ if {[file exists $sim_copy_tcl]} {
 
 add_files -fileset constrs_1 -norecurse [file join $cpu_root constr nexys_video.xdc]
 
-add_files -fileset sim_1 -norecurse [file join $cpu_root sim system_tb.sv]
+add_files -fileset sim_1 -norecurse [list \
+    [file join $cpu_root sim test_data_pkg.sv] \
+    [file join $cpu_root sim system_tb.sv] \
+]
+foreach f [get_files -of_objects [get_filesets sim_1] *.sv] {
+    set_property file_type SystemVerilog $f
+}
 set_property top system [current_fileset]
 set_property top system_tb [get_filesets sim_1]
 set_property top_lib xil_defaultlib [get_filesets sim_1]

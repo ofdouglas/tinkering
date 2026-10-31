@@ -14,7 +14,7 @@ PREFIX  := riscv64-unknown-elf-
 ARCH    := -march=rv32i_zicsr -mabi=ilp32 -misa-spec=2.2
 ASFLAGS := $(ARCH) -Wa,-march=rv32i
 CFLAGS  := $(ARCH) -Os -ffreestanding -nostdlib -I$(COMMON_DIR)
-LDFLAGS := $(ARCH) -T linker.ld -nostdlib
+LDFLAGS := $(ARCH) -T linker.ld -nostdlib -Wl,--build-id=none
 OBJDUMP := $(PREFIX)objdump -d -S -M no-aliases
 HEX_ADDR_OFFSET := -0x00010000
 

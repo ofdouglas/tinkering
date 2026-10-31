@@ -338,23 +338,14 @@ typedef struct packed {
 } WritebackControls;
 
 typedef struct packed {
-    // logic         interrupt_taken;
+    logic       fetch_access_fault;
+    logic       fetch_alignment_fault;
+    logic       illegal_instruction;
+    logic       mret_instruction;
+    logic       ecall_instruction;
+    // logic    breakpoint_instruction
+} If_Id_Traps;
 
-    // Set by Decode stage
-    logic         illegal_instruction;
-    logic         invalid_opcode;
-    logic         decode_flush;
-    logic         decode_trap;
-    logic         exception_return;
-
-    // Set by Execute stage
-    logic [31:0]  branch_pc;
-
-    // Set by Memory stage
-    logic         mem_stall;
-    logic         mem_unaligned;
-    logic         bus_error;
-} CpuControl;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Pipeline Registers
@@ -368,6 +359,7 @@ typedef struct packed {
 
     // Control path
     logic              valid;
+    logic              access_fault;
     logic              unaligned_pc;
 } FetchStageRegs;
 
@@ -389,6 +381,7 @@ typedef struct packed {
     MemoryControls     mem_ctrl;
     WritebackControls  wb_ctrl;
     logic              csr_instruction;
+    If_Id_Traps        if_id_traps;
 } DecodeStageRegs;
 
 typedef struct packed {
@@ -404,6 +397,7 @@ typedef struct packed {
     JumpBranchControls jump_branch_ctrl;
     MemoryControls     mem_ctrl;
     WritebackControls  wb_ctrl;
+    If_Id_Traps        if_id_traps;
 } ExecuteStageRegs;
 
 typedef struct packed {
@@ -416,7 +410,6 @@ typedef struct packed {
     logic              valid;
     JumpBranchControls jump_branch_ctrl;
     WritebackControls  wb_ctrl;
-    logic              mem_unaligned;
 } MemoryStageRegs;
 
 

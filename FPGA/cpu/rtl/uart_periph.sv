@@ -32,66 +32,57 @@ uart uart_component(
     .rx_in    (uart_rx_in)
 );
 
-// Interrupt logic
+// Interrupt output. Enable bits are owned by the register-access process.
 always_ff @(posedge bus.clk) begin
-    logic rx_valid_irq;
-    logic tx_ready_irq;
-
     if (!bus.rst_n) begin
-        uart_rx_valid_irq_enable <= 1'b0;
-        uart_tx_ready_irq_enable <= 1'b0;
         uart_irq_out <= 1'b0;
     end else begin
-        rx_valid_irq = uart_rx_valid_reg && uart_rx_valid_irq_enable;
-        tx_ready_irq = uart_tx_ready && uart_tx_ready_irq_enable;
-        uart_irq_out <= rx_valid_irq | tx_ready_irq;
+        uart_irq_out <= (uart_rx_valid_reg && uart_rx_valid_irq_enable)
+                      | (uart_tx_ready && uart_tx_ready_irq_enable);
     end
 end
 
-
-// Write to transmit data register
+// Register access and RX capture in one process so bus.error / IRQ enables
+// have a single driver.
 always_ff @(posedge bus.clk) begin
     if (!bus.rst_n) begin
         uart_reg_tx_data <= '0;
         uart_tx_strobe   <= 1'b0;
         bus.wr_ack       <= 1'b0;
         tx_write_active  <= 1'b0;
-    end else begin
-        uart_tx_strobe <= 1'b0;
-        bus.wr_ack     <= 1'b0;
-
-        if (!bus.valid) begin
-            tx_write_active <= 1'b0;
-        end else if (!tx_write_active && bus.wr_strobe[0]) begin
-            if (bus.addr[3:2] == 2'd1) begin
-                uart_rx_valid_irq_enable <= bus.wr_data[1];
-                uart_tx_ready_irq_enable <= bus.wr_data[0];
-                bus.wr_ack       <= 1'b1;
-                tx_write_active  <= 1'b1;
-            end else if (bus.addr[3:2] == 2'd2) begin
-                uart_reg_tx_data <= bus.wr_data[7:0];
-                uart_tx_strobe   <= 1'b1;
-                bus.wr_ack       <= 1'b1;
-                tx_write_active  <= 1'b1;
-            end else begin
-                bus.error <= 1'b1;
-            end
-        end
-    end
-end
-
-// Read from various registers
-always_ff @(posedge bus.clk) begin
-    if (!bus.rst_n) begin
+        uart_rx_valid_irq_enable <= 1'b0;
+        uart_tx_ready_irq_enable <= 1'b0;
         uart_rx_valid_reg <= 1'b0;
         uart_reg8_mux <= '0;
         bus.rd_valid  <= 1'b0;
         bus.error     <= 1'b0;
     end else begin
-        bus.rd_valid <= 1'b0;
-        bus.error    <= 1'b0;
+        uart_tx_strobe <= 1'b0;
+        bus.wr_ack     <= 1'b0;
+        bus.rd_valid   <= 1'b0;
+        bus.error      <= 1'b0;
 
-        if (bus.valid && ~|bus.wr_strobe) begin
+        if (!bus.valid) begin
+            tx_write_active <= 1'b0;
+        end else if (!tx_write_active && bus.wr_strobe[0]) begin
+            unique case (bus.addr[3:2])
+                2'd1: begin
+                    uart_rx_valid_irq_enable <= bus.wr_data[1];
+                    uart_tx_ready_irq_enable <= bus.wr_data[0];
+                    bus.wr_ack       <= 1'b1;
+                    tx_write_active  <= 1'b1;
+                end
+                2'd2: begin
+                    uart_reg_tx_data <= bus.wr_data[7:0];
+                    uart_tx_strobe   <= 1'b1;
+                    bus.wr_ack       <= 1'b1;
+                    tx_write_active  <= 1'b1;
+                end
+                default: begin
+                    bus.error <= 1'b1;
+                end
+            endcase
+        end else if (~|bus.wr_strobe) begin
             unique case (bus.addr[3:2])
                 2'd0: begin
                     uart_reg8_mux <= {6'b0, uart_rx_valid_reg, uart_tx_ready};
@@ -114,7 +105,9 @@ always_ff @(posedge bus.clk) begin
                     bus.error <= 1'b1;
                 end
             endcase
-        end 
+        end
+
+        // Same-cycle RX overwrite: keep after register access so a new byte wins.
         if (uart_rx_valid_strobe) begin
             uart_rx_valid_reg <= 1'b1;
             uart_rx_data_reg <= uart_rx_data_comb;
