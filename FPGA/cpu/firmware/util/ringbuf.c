@@ -31,10 +31,17 @@ bool ringbuf_enqueue(ringbuf_t* ringbuf, uint8_t data) {
 }
 
 bool ringbuf_dequeue(ringbuf_t* ringbuf, uint8_t* data) {
+    if (!ringbuf_peek(ringbuf, data)) {
+        return false;
+    }
+    ringbuf->read_index = increment_wrapping(ringbuf->read_index, ringbuf->buffer_size);
+    return true;
+}
+
+bool ringbuf_peek(ringbuf_t* ringbuf, uint8_t* data) {
     if (ringbuf_is_empty(ringbuf)) {
         return false;
     }
     *data = ringbuf->buffer[ringbuf->read_index];
-    ringbuf->read_index = increment_wrapping(ringbuf->read_index, ringbuf->buffer_size);
     return true;
 }

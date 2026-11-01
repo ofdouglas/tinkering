@@ -35,12 +35,12 @@ clk_wiz_0 clk_wiz(
 `endif
 
 // Instruction ROM for the CPU (private access)
-bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_fetch();
+bus_slave_interface #(.ADDR_MSB(ROM_ADDR_MSB)) rom_fetch();
 // Alternate ROM access from main system bus, for loading data from ROM
-bus_slave_read_port #(.ADDR_MSB(MEMORY_ADDR_MSB)) rom_alt_port();
+bus_slave_read_port #(.ADDR_MSB(ROM_ADDR_MSB)) rom_alt_port();
 block_rom #(
-    .WORD_ADDR_BITS(MEMORY_ADDR_MSB-1),
-    .ADDR_MSB(MEMORY_ADDR_MSB)
+    .WORD_ADDR_BITS(ROM_ADDR_MSB-1),
+    .ADDR_MSB(ROM_ADDR_MSB)
 ) cpu_rom (
     .bus_main(rom_fetch.slave),
     .bus_port2(rom_alt_port.slave)
@@ -57,11 +57,25 @@ always_ff @(posedge clk) begin
 end
 assign rom_fetch_response_matches = rom_fetch.rd_valid && (rom_fetch_response_addr == rom_fetch.addr);
 
-// Data RAM for the CPU
-bus_slave_interface #(.ADDR_MSB(MEMORY_ADDR_MSB)) sram_bus();
-block_sram #(.WORD_ADDR_BITS(MEMORY_ADDR_MSB-1)) cpu_sram (
-    .bus(sram_bus.slave)
+// Data RAM for the CPU (bus_main = data, bus_port2 = instruction fetch)
+bus_slave_interface #(.ADDR_MSB(SRAM_ADDR_MSB)) sram_bus();
+bus_slave_read_port #(.ADDR_MSB(SRAM_ADDR_MSB)) sram_ifetch();
+block_sram #(.WORD_ADDR_BITS(SRAM_ADDR_MSB-1)) cpu_sram (
+    .bus_main(sram_bus.slave),
+    .bus_port2(sram_ifetch.slave)
 );
+logic [MEMORY_ADDR_MSB:2] sram_ifetch_response_addr;
+logic sram_ifetch_response_matches;
+
+always_ff @(posedge clk) begin
+    if (!system_rst_n) begin
+        sram_ifetch_response_addr <= '0;
+    end else begin
+        sram_ifetch_response_addr <= sram_ifetch.addr;
+    end
+end
+assign sram_ifetch_response_matches =
+    sram_ifetch.rd_valid && (sram_ifetch_response_addr == sram_ifetch.addr);
 
 // TODO: get rid of debug LEDs once we have better signaling for HW faults
 logic [7:0] gpio_led_enables;
@@ -159,13 +173,24 @@ always_comb begin
 end
 
 
+logic [31:2] cpu_fetch_addr;
+logic [31:0] instruction_fetch;
+logic        fetch_valid;
+logic        fetch_fault;
+logic        fetch_from_rom;
+logic        fetch_from_ram;
+
+assign fetch_from_rom = (cpu_fetch_addr[31:28] == REGION_BOOT_ROM);
+assign fetch_from_ram = (cpu_fetch_addr[31:28] == REGION_SHARED_RAM);
+
 assign rom_fetch.clk   = clk;
 assign rom_fetch.rst_n = system_rst_n;
-assign rom_fetch.valid = 1'b1;
+assign rom_fetch.valid = fetch_from_rom;
 assign rom_fetch.wr_strobe = '0;
 assign rom_fetch.wr_data = '0;
+assign rom_fetch.addr = cpu_fetch_addr[ROM_ADDR_MSB:2];
 assign rom_alt_port.valid = region_rom && cpu_request && !is_write;
-assign rom_alt_port.addr = address_bus[MEMORY_ADDR_MSB:2];
+assign rom_alt_port.addr = address_bus[ROM_ADDR_MSB:2];
 assign rom_trap = rom_fetch.error || rom_alt_port.error;
 
 assign sram_bus.clk   = clk;
@@ -173,7 +198,27 @@ assign sram_bus.rst_n = system_rst_n;
 assign sram_bus.valid = region_ram && cpu_request;
 assign sram_bus.wr_strobe = byte_enables;
 assign sram_bus.wr_data = data_write_bus;
-assign sram_bus.addr = address_bus[MEMORY_ADDR_MSB:2];
+assign sram_bus.addr = address_bus[SRAM_ADDR_MSB:2];
+assign sram_ifetch.valid = fetch_from_ram;
+assign sram_ifetch.addr = cpu_fetch_addr[SRAM_ADDR_MSB:2];
+
+always_comb begin
+    instruction_fetch = 32'h0000_0013;
+    fetch_valid = 1'b0;
+    fetch_fault = 1'b0;
+
+    if (fetch_from_rom) begin
+        instruction_fetch = rom_fetch.rd_data;
+        fetch_valid = rom_fetch_response_matches;
+        fetch_fault = rom_fetch.error;
+    end else if (fetch_from_ram) begin
+        instruction_fetch = sram_ifetch.rd_data;
+        fetch_valid = sram_ifetch_response_matches;
+        fetch_fault = sram_ifetch.error;
+    end else begin
+        fetch_fault = 1'b1;
+    end
+end
 
 assign periph_bus.clk   = clk;
 assign periph_bus.rst_n = system_rst_n;
@@ -200,10 +245,10 @@ end
 rv32cpu cpu(
     .clk               (clk),
     .rst_n             (system_rst_n),
-    .instruction_fetch (rom_fetch.rd_data),
-    .fetch_addr        (rom_fetch.addr),
-    .fetch_valid       (rom_fetch_response_matches),
-    .fetch_fault       (rom_fetch.error),
+    .instruction_fetch (instruction_fetch),
+    .fetch_addr        (cpu_fetch_addr),
+    .fetch_valid       (fetch_valid),
+    .fetch_fault       (fetch_fault),
     .load_fault        (memory_access_error && !is_write),
     .store_fault       (memory_access_error && is_write),
     .store_unaligned   (unaligned_write_trap),

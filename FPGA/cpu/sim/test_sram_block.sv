@@ -2,10 +2,11 @@
 import test_data_pkg::*;
 
 module test_sram_block #(
-    parameter int WORD_ADDR_BITS = 10,
+    parameter int WORD_ADDR_BITS = 11,
     parameter string DEFAULT_TEST_HEX = "crc.hex"
 ) (
-    bus_slave_interface.slave bus
+    bus_slave_interface.slave bus_main,
+    bus_slave_read_port.slave bus_port2
 );
 
 localparam int WORDS = 2 ** WORD_ADDR_BITS;
@@ -14,7 +15,8 @@ logic [31:0] expected_sram [0:WORDS-1];
 bit expected_loaded = 1'b0;
 
 block_sram #(.WORD_ADDR_BITS(WORD_ADDR_BITS)) rtl_sram (
-    .bus(bus)
+    .bus_main(bus_main),
+    .bus_port2(bus_port2)
 );
 
 task automatic clear_expected;

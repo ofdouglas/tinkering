@@ -1,14 +1,24 @@
 ENTRY(_start)
 MEMORY {
-    BOOT_ROM (rx)   : ORIGIN = 0x00010000, LENGTH = 8K
-    SHARED_RAM (rwx) : ORIGIN = 0x10000000, LENGTH = 8K
-
-   /* CPU0_PSRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 64K
-    CPU0_DSRAM (rwwx) : ORIGIN = 0x21000000, LENGTH = 32K */
+    BOOT_ROM   (rx)  : ORIGIN = 0x00010000, LENGTH = 8K
+    SRAM_DATA  (rwx) : ORIGIN = 0x10000000, LENGTH = 32K
+    SRAM_TEXT  (rx)  : ORIGIN = 0x10008000, LENGTH = 32K
 }
 
 STACK_SIZE = 512 * 4;
 HEAP_SIZE  = 512 * 1;
+
+_SRAM_TEXT_START = ORIGIN(SRAM_TEXT);
+_SRAM_TEXT_END = ORIGIN(SRAM_TEXT) + LENGTH(SRAM_TEXT);
+_SRAM_TEXT_LENGTH = LENGTH(SRAM_TEXT);
+
+_SRAM_DATA_START = ORIGIN(SRAM_DATA);
+_SRAM_DATA_END = ORIGIN(SRAM_DATA) + LENGTH(SRAM_DATA);
+_SRAM_DATA_LENGTH = LENGTH(SRAM_DATA);
+
+_BOOT_ROM_START = ORIGIN(BOOT_ROM);
+_BOOT_ROM_END = ORIGIN(BOOT_ROM) + LENGTH(BOOT_ROM);
+_BOOT_ROM_LENGTH = LENGTH(BOOT_ROM);
 
 SECTIONS {
     /DISCARD/ :
@@ -55,7 +65,7 @@ SECTIONS {
         . = ALIGN(4);
         _bss_end = .;
 
-    } > SHARED_RAM
+    } > SRAM_DATA
 
     .data :
     {
@@ -64,7 +74,7 @@ SECTIONS {
         *(.data .data.* .sdata .sdata.*)
         . = ALIGN(4);
         _data_end = .;
-    } > SHARED_RAM AT> BOOT_ROM
+    } > SRAM_DATA AT> BOOT_ROM
 
     _copy_data = LOADADDR(.data);
 
@@ -74,13 +84,13 @@ SECTIONS {
         _heap_start = .;
         . = . + HEAP_SIZE;
         _heap_end = .;
-    } > SHARED_RAM
+    } > SRAM_DATA
 
     .stack :
     {
-        _stack_top = ORIGIN(SHARED_RAM) + LENGTH(SHARED_RAM);
+        _stack_top = ORIGIN(SRAM_DATA) + LENGTH(SRAM_DATA);
         _stack_bottom = _stack_top - STACK_SIZE;
         . = _stack_bottom;
         . = . + STACK_SIZE;
-    } > SHARED_RAM
+    } > SRAM_DATA
 }

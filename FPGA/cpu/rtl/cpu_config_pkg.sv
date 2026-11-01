@@ -6,8 +6,9 @@ package cpu_config_pkg;
     localparam int REGION_BITS_LSB  = 28;
 
     // localparam int MEMORY_ADDR_MSB  = 17;   // [17:2] ->  256 KiB 
-    localparam int MEMORY_ADDR_MSB  = 12;   // [12:2] ->  8 KiB 
-    localparam int PERIPH_ADDR_MSB  = 7;    // [7:2]  -> 256 B
+    localparam int ROM_ADDR_MSB     = 12; // [12:2] ->  8 KiB
+    localparam int SRAM_ADDR_MSB    = 15; // [15:2] ->  64 KiB    
+    localparam int PERIPH_ADDR_MSB  = 7;  // [7:2]  -> 256 B
 
     // Memory regions (64 KiB each)
     localparam logic [31:0] BOOT_ROM_BASE   = 32'h0001_0000;

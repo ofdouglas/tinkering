@@ -63,7 +63,8 @@ module cpu_tb;
     logic fetch_in_range;
     logic rom_busy;
 
-    bus_slave_interface #(.ADDR_MSB(DATA_ADDR_BITS+1)) sram_bus();
+    bus_slave_interface #(.ADDR_MSB(DATA_ADDR_BITS+1)) sram_data_bus();
+    bus_slave_read_port #(.ADDR_MSB(DATA_ADDR_BITS+1)) sram_ifetch_bus();
     slow_memory_adapter #(.ADDR_MSB(DATA_ADDR_BITS+1)) mem_adapter (
         .clk         (clk),
         .rst_n       (rst_n),
@@ -75,24 +76,41 @@ module cpu_tb;
         .cpu_rd_valid (rd_valid),
         .cpu_rd_data (sram_rd_data),
         .cpu_wr_ack  (wr_ack),
-        .bus         (sram_bus)
+        .bus         (sram_data_bus)
     );
-    assign sram_bus.clk = clk;
-    assign sram_bus.rst_n = rst_n;
+    assign sram_data_bus.clk = clk;
+    assign sram_data_bus.rst_n = rst_n;
     test_sram_block #(
         .WORD_ADDR_BITS(DATA_ADDR_BITS),
         .DEFAULT_TEST_HEX(DEFAULT_TEST_HEX)
     ) data_sram (
-        .bus(sram_bus.slave)
+        .bus_main(sram_data_bus.slave),
+        .bus_port2(sram_ifetch_bus.slave)
     );
 
-    assign fetch_rom_word_offset = fetch_addr - TEST_ROM_WORD_BASE;
-    assign rom_word_addr = fetch_rom_word_offset[ROM_ADDR_BITS+1:2];
-    assign fetch_in_range = ({fetch_addr, 2'b00} >= TEST_ROM_BASE) && ({fetch_addr, 2'b00} < TEST_ROM_END);
-    assign instruction_fetch = fetch_in_range ? instruction_rom[rom_word_addr] : NOP_INSTRUCTION;
-    assign fetch_valid = rst_n && fetch_in_range && !rom_busy;
-    assign fetch_fault = !fetch_in_range;
-    assign is_write = |wr_strobe;
+
+    /* Read from ROM or SRAM for instruction fetch */
+    always_comb begin
+        logic [31:0] byte_addr;
+        byte_addr = {fetch_addr, 2'b00};
+        sram_ifetch_bus.valid = 1'b0;
+        sram_ifetch_bus.addr  = fetch_addr[DATA_ADDR_BITS+1:2];
+
+        if ((byte_addr >= TEST_RAM_BASE) && (byte_addr < TEST_RAM_END)) begin
+            sram_ifetch_bus.valid = 1'b1;
+            instruction_fetch    = sram_ifetch_bus.rd_data;
+            fetch_valid          = sram_ifetch_bus.rd_valid;
+            fetch_fault          = 1'b0;
+        end else if ((byte_addr >= TEST_ROM_BASE) && (byte_addr < TEST_ROM_END)) begin
+            instruction_fetch    = instruction_rom[fetch_addr[ROM_ADDR_BITS+1:2]];
+            fetch_valid          = 1'b1;
+            fetch_fault          = 1'b0;
+        end else begin
+            instruction_fetch    = NOP_INSTRUCTION;
+            fetch_valid          = 1'b0;
+            fetch_fault          = 1'b1;
+        end
+    end
 
     /* CPU read from SRAM, Peripherals, or ROM (stalls instruction fetch) */
     always_comb begin
@@ -144,6 +162,7 @@ module cpu_tb;
             default: aligned_write = 1'b0;
         endcase
 
+        is_write = |wr_strobe;
         store_unaligned = valid && is_write && !aligned_write;
         load_fault = memory_access_error && !is_write;
         store_fault = memory_access_error && is_write;
