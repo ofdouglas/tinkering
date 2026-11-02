@@ -13,7 +13,7 @@ The current FPGA target is Digilent Nexys Video (`XC7A200T`). SoC/peripheral wor
 - `rtl/` - CPU, SoC wrapper, bus, SRAM/ROM, GPIO/UART peripherals.
 - `sim/` - Verilator testbenches and helpers; `cpu_tb.sv` is the main CPU validation bench, `system_tb.sv` is the firmware/system smoke bench.
 - `test-fw/` - RV32I asm/C validation programs, expected register/SRAM data, and the default `make`/Verilator flow. See `AGENTS.md` for the asm `verify`/snapshot convention.
-- `firmware/` - Demo firmware built into `mem/firmware.hex` for `system_tb` and Vivado.
+- `firmware/` - Bootloader ROM (`mem/bootloader.hex`), UART app (`mem/main_app.hex`), and sim payload (`mem/led_toggle.bin`).
 - `scripts/` - Vivado Tcl scripts. The generated FPGA project lives at `FPGA/vivado/cpu`.
 - `docs/` - Working notes: `validation_work.md`, `rtl_work.md`, `isa_notes.md`.
 

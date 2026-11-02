@@ -87,7 +87,7 @@ if {$pkg_sv ne "" && $if_sv ne ""} {
 update_compile_order -fileset sources_1
 
 set mem_dir [file join $cpu_root mem]
-set firmware_hex [file join $mem_dir firmware.hex]
+set firmware_hex [file join $mem_dir bootloader.hex]
 set mem_files [list]
 foreach pattern {*.hex *.regs *.sram} {
     foreach mem_file [glob -nocomplain -directory $mem_dir $pattern] {

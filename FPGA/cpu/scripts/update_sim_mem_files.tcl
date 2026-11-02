@@ -31,7 +31,7 @@ foreach mem_file $mem_files {
     set_property USED_IN_SYNTHESIS 0 $mem_obj
 }
 
-set firmware_hex [file join $mem_dir firmware.hex]
+set firmware_hex [file join $mem_dir bootloader.hex]
 if {[file exists $firmware_hex]} {
     set_property USED_IN_SYNTHESIS 1 [get_files -quiet $firmware_hex]
 }

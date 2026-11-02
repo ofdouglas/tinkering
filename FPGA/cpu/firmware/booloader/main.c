@@ -1,65 +1,58 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
-#include "system/intrinsics.h"
 #include "drivers/time.h"
 #include "drivers/uart.h"
+#include "linker/mem_map.h"
 
 /******************************************************************************
  * Constants and type definitions
  *****************************************************************************/
-#define TX_BUFFER_SIZE 32
 
 typedef enum state_e {
     STATE_IDLE,
     STATE_DOWNLOAD_IMAGE,
     STATE_DOWNLOAD_CRC,
     STATE_VERIFY,
-    STATE_BOOT_APP,
-    STATE_ERROR
+    STATE_BOOT_APP
 } State;
 
 typedef enum result_e { RESULT_PENDING, RESULT_FAILURE, RESULT_SUCCESS } Result;
 
-const uint64_t kNanosecondsPerMillisecond = 1000000ULL;
-const uint64_t kAdvertiseIntervalNs = kNanosecondsPerMillisecond * 100ULL;
+#define IMAGE_BUFFER ((volatile uint8_t*)SRAM_TEXT_BASE)
+static const size_t kMaxImgBytes = SRAM_TEXT_SIZE;
+static const uint64_t kAdvertiseIntervalNs = 100ULL * NS_PER_MILLISEC;
+static const char kAdvertiseMsg[] = "BL_READY\n";
+static const char kBootImgMsg[] = "BOOT_IMG";
+static const size_t kBootImgMsgLength = 8;
 
 /******************************************************************************
- * Global objects
+ * Download / parser state
  *****************************************************************************/
-uint8_t uart_tx_ringbuf_storage[TX_BUFFER_SIZE];
-ringbuf_t uart_tx_ringbuf;
 
-uint64_t next_advertise_time_ns = 0;
+static uint64_t next_advertise_time_ns = 0;
+static size_t advertise_index = 0;
 
-uint8_t crc_buffer[4] = {0};
-uint8_t crc_buffer_index = 0;
+static uint8_t crc_buffer[4];
+static uint8_t crc_buffer_index = 0;
+static size_t img_bytes_received = 0;
 
-size_t img_bytes_received = 0;
+static bool hex_byte_started = false;
+static uint8_t hex_partial_byte = 0;
+static size_t boot_img_match_index = 0;
 
 /******************************************************************************
- * SRAM sections (linker symbols)
- *****************************************************************************/
-extern uint8_t _SRAM_TEXT_START;
-extern uint8_t _SRAM_TEXT_END;
-extern uint8_t _SRAM_TEXT_LENGTH;
-
-uint8_t* const image_buffer = (uint8_t*)(&_SRAM_TEXT_START);
-uint8_t* const image_buffer_end = (uint8_t*)(&_SRAM_TEXT_END);
-
-const size_t kMaxImgBytes = (size_t)(image_buffer_end - image_buffer);
-
-/******************************************************************************
- * Helper functions
+ * Helpers
  *****************************************************************************/
 
-uint32_t crc32_bytes(const uint8_t* bytes, size_t length) {
-    uint32_t crc = 0xFFFFFFFF;
+static uint32_t crc32_bytes(const uint8_t* bytes, size_t length) {
+    uint32_t crc = 0xFFFFFFFFu;
 
     for (size_t i = 0; i < length; i++) {
         crc ^= bytes[i];
-        for (int bit = 7; bit >= 0; bit--) {
-            if (crc & 1u) {
+        for (int bit = 0; bit < 8; bit++) {
+            if ((crc & 1u) != 0u) {
                 crc = (crc >> 1) ^ 0xEDB88320u;
             } else {
                 crc >>= 1;
@@ -70,178 +63,193 @@ uint32_t crc32_bytes(const uint8_t* bytes, size_t length) {
     return ~crc;
 }
 
-// Polled TX queue service (non-blocking)
-void run_tx_service_nonblocking() {
-    uint8_t tx_byte = 0;
-    if (ringbuf_peek(uart_tx_ringbuf, &tx_byte)) {
-        if (uart_putchar_nonblocking(tx_byte)) {
-            (void)ringbuf_dequeue(uart_tx_ringbuf, &tx_byte);
-        }
-    }
-}
-
-bool send_string_nonblocking(const char* str) {
-    while (*str) {
-        if (!ringbuf_enqueue(uart_tx_ringbuf, *str)) {
-            return false;
-        }
-        str++;
-    }
-    return true;
-}
-
-void send_string_blocking(const char* str) {
-    while (*str) {
-        uart_send_byte_blocking(*str);
+static void send_string_blocking(const char* str) {
+    while (*str != '\0') {
+        uart_send_byte_blocking((uint8_t)*str);
         str++;
     }
 }
 
-uint8_t nibble_from_char(char c) {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    } else if (c >= 'A' && c <= 'F') {
-        return c - 'A' + 10;
-    } else if (c >= 'a' && c <= 'f') {
-        return c - 'a' + 10;
-    } else {
-        return UINT8_MAX;
-    }
-}
-
-bool is_hex_digit(char c) {
-    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
-}
-
-// Try to receive one ASCII-encoded hex byte from the host.
-Result poll_hex_byte(char rx_byte, uint8_t* byte) {
-    static bool byte_started = false;
-    uint8_t partial_byte = 0;
-    Result result = RESULT_PENDING;
-    bool do_reset = true;
-
-    if (!is_hex_digit(rx_byte)) {
-        result = (rx_byte == ' ') ? RESULT_PENDING : RESULT_FAILURE;
-    } else {
-        uint8_t nibble = nibble_from_char(rx_byte);
-        if (nibble == UINT8_MAX) {
-            result = RESULT_FAILURE;
-        }
-
-        if (byte_started) {
-            partial_byte = (nibble << 4) | partial_byte;
-            byte_started = false;
-            *byte = partial_byte;
-            result = RESULT_SUCCESS;
-        } else {
-            partial_byte = nibble;
-            byte_started = true;
-            result = RESULT_PENDING;
-            do_reset = false;
-        }
-    }
-
-    if (do_reset) {
-        byte_started = false;
-        partial_byte = 0;
-    }
-
-    return result;
-}
-
-Result poll_message_start(char rx_byte, const char* const message, size_t message_length) {
-    static int index = 0;
-
-    if (index >= message_length) {
-        return RESULT_FAILURE;
-    }
-
-    if (rx_byte == message[index]) {
-        index++;
-    } else {
-        index = 0;
-    }
-
-    if (index == message_length) {
-        return RESULT_SUCCESS;
-    }
-
-    return RESULT_PENDING;
-}
-
-void poll_advertise(void) {
-    uint64_t now_ns = get_time_ns();
-
-    if (now_ns >= next_advertise_time_ns) {
-        next_advertise_time_ns = now_ns + kAdvertiseIntervalNs;
-        send_string_nonblocking("BL_READY\n");
-    }
-}
-
-Result poll_download_start(char rx_byte) {
-    static const char* const kBootImgMsg = "BOOT_IMG";
-    static const size_t kBootImgMsgLength = 8;
-    return poll_message_start(rx_byte, kBootImgMsg, kBootImgMsgLength);
-}
-
-Result download_app(int rx_byte) {
-    if (img_bytes_received >= kMaxImgBytes) {
-        return RESULT_FAILURE;
-    }
-
-    if (rx_byte == '$') {
-        return RESULT_SUCCESS;
-    }
-
-    uint8_t decoded_byte = 0;
-    Result result = poll_hex_byte(rx_byte, &decoded_byte);
-    if (result == RESULT_SUCCESS) {
-        image_buffer[img_bytes_received++] = decoded_byte;
-    }
-
-    return RESULT_PENDING;
-}
-
-Result download_crc(int rx_byte) {
-    if (crc_buffer_index > 4) {
-        return RESULT_FAILURE;
-    }
-
-    if (rx_byte == ';') {
-        return (crc_buffer_index == 4) ? RESULT_SUCCESS : RESULT_FAILURE;
-    }
-
-    uint8_t decoded_byte = 0;
-    Result result = poll_hex_byte(rx_byte, &decoded_byte);
-    if (result == RESULT_SUCCESS) {
-        crc_buffer[crc_buffer_index++] = decoded_byte;
-    }
-
-    return RESULT_PENDING;
-}
-
-Result verify_app(void) {
-    if (crc_buffer_index != 4) {
-        return RESULT_FAILURE;
-    }
-
-    uint32_t computed_crc = crc32_bytes(image_buffer, img_bytes_received);
-    uint32_t received_crc =
-        (crc_buffer[0] << 24) | (crc_buffer[1] << 16) | (crc_buffer[2] << 8) | crc_buffer[3];
-    return (computed_crc == received_crc) ? RESULT_SUCCESS : RESULT_FAILURE;
-}
-
-void infinite_loop(void) {
+static void hang(void) {
     while (true) {
         ;
     }
 }
 
-void boot_app(void) {
-    void*(application_entry_point)() = (void (*)())image_buffer;
-    application_entry_point();
+static bool is_whitespace(char c) {
+    return (c == ' ') || (c == '\r') || (c == '\n') || (c == '\t');
+}
 
-    infinite_loop();  // should not get here
+static bool is_hex_digit(char c) {
+    return ((c >= '0') && (c <= '9')) || ((c >= 'A') && (c <= 'F')) ||
+           ((c >= 'a') && (c <= 'f'));
+}
+
+static uint8_t nibble_from_char(char c) {
+    if ((c >= '0') && (c <= '9')) {
+        return (uint8_t)(c - '0');
+    }
+    if ((c >= 'A') && (c <= 'F')) {
+        return (uint8_t)(c - 'A' + 10);
+    }
+    return (uint8_t)(c - 'a' + 10);
+}
+
+static void reset_hex_parser(void) {
+    hex_byte_started = false;
+    hex_partial_byte = 0;
+}
+
+static void reset_download_state(void) {
+    img_bytes_received = 0;
+    crc_buffer_index = 0;
+    crc_buffer[0] = 0;
+    crc_buffer[1] = 0;
+    crc_buffer[2] = 0;
+    crc_buffer[3] = 0;
+    boot_img_match_index = 0;
+    reset_hex_parser();
+}
+
+/**
+ * @brief Decode one ASCII hex byte across two nibble characters.
+ *
+ * Whitespace is allowed only between complete bytes.
+ */
+static Result poll_hex_byte(char rx_byte, uint8_t* byte) {
+    if (is_whitespace(rx_byte)) {
+        if (hex_byte_started) {
+            return RESULT_FAILURE;
+        }
+        return RESULT_PENDING;
+    }
+
+    if (!is_hex_digit(rx_byte)) {
+        return RESULT_FAILURE;
+    }
+
+    const uint8_t nibble = nibble_from_char(rx_byte);
+    if (!hex_byte_started) {
+        hex_partial_byte = nibble;
+        hex_byte_started = true;
+        return RESULT_PENDING;
+    }
+
+    *byte = (uint8_t)((hex_partial_byte << 4) | nibble);
+    reset_hex_parser();
+    return RESULT_SUCCESS;
+}
+
+/** @brief Match BOOT_IMG; mismatches stay in idle (never an error). */
+static Result poll_download_start(char rx_byte) {
+    if (rx_byte == kBootImgMsg[boot_img_match_index]) {
+        boot_img_match_index++;
+        if (boot_img_match_index == kBootImgMsgLength) {
+            boot_img_match_index = 0;
+            return RESULT_SUCCESS;
+        }
+        return RESULT_PENDING;
+    }
+
+    if (rx_byte == kBootImgMsg[0]) {
+        boot_img_match_index = 1;
+    } else {
+        boot_img_match_index = 0;
+    }
+    return RESULT_PENDING;
+}
+
+static void poll_advertise(void) {
+    if (boot_img_match_index != 0) {
+        return;
+    }
+
+    if (advertise_index == 0) {
+        if (mtim_read_nanosec() < next_advertise_time_ns) {
+            return;
+        }
+    }
+
+    if (!uart_putchar_nonblocking(kAdvertiseMsg[advertise_index])) {
+        return;
+    }
+
+    advertise_index++;
+    if (kAdvertiseMsg[advertise_index] == '\0') {
+        advertise_index = 0;
+        next_advertise_time_ns = mtim_read_nanosec() + kAdvertiseIntervalNs;
+    }
+}
+
+static Result download_app(int rx_byte) {
+    if (rx_byte == '$') {
+        if (hex_byte_started || (img_bytes_received == 0)) {
+            return RESULT_FAILURE;
+        }
+        return RESULT_SUCCESS;
+    }
+
+    if (img_bytes_received >= kMaxImgBytes) {
+        return RESULT_FAILURE;
+    }
+
+    uint8_t decoded_byte = 0;
+    const Result result = poll_hex_byte((char)rx_byte, &decoded_byte);
+    if (result == RESULT_SUCCESS) {
+        IMAGE_BUFFER[img_bytes_received] = decoded_byte;
+        img_bytes_received++;
+        return RESULT_PENDING;
+    }
+    return result;
+}
+
+static Result download_crc(int rx_byte) {
+    if (rx_byte == ';') {
+        if (hex_byte_started) {
+            return RESULT_FAILURE;
+        }
+        return (crc_buffer_index == 4) ? RESULT_SUCCESS : RESULT_FAILURE;
+    }
+
+    if (crc_buffer_index >= 4) {
+        return RESULT_FAILURE;
+    }
+
+    uint8_t decoded_byte = 0;
+    const Result result = poll_hex_byte((char)rx_byte, &decoded_byte);
+    if (result == RESULT_SUCCESS) {
+        crc_buffer[crc_buffer_index] = decoded_byte;
+        crc_buffer_index++;
+        return RESULT_PENDING;
+    }
+    return result;
+}
+
+static Result verify_app(void) {
+    if ((crc_buffer_index != 4) || (img_bytes_received == 0)) {
+        return RESULT_FAILURE;
+    }
+
+    const uint32_t computed_crc =
+        crc32_bytes((const uint8_t*)IMAGE_BUFFER, img_bytes_received);
+    const uint32_t received_crc = ((uint32_t)crc_buffer[0] << 24) |
+                                  ((uint32_t)crc_buffer[1] << 16) |
+                                  ((uint32_t)crc_buffer[2] << 8) |
+                                  (uint32_t)crc_buffer[3];
+    return (computed_crc == received_crc) ? RESULT_SUCCESS : RESULT_FAILURE;
+}
+
+static void fail_download(const char* msg, State* state) {
+    send_string_blocking(msg);
+    reset_download_state();
+    *state = STATE_IDLE;
+}
+
+static void boot_app(void) {
+    void (*entry)(void) = (void (*)(void))(uintptr_t)IMAGE_BUFFER;
+    __asm__ volatile("" ::: "memory");
+    entry();
+    hang();
 }
 
 /******************************************************************************
@@ -250,67 +258,59 @@ void boot_app(void) {
 
 int main(void) {
     State state = STATE_IDLE;
-    Result result = RESULT_PENDING;
-    int rx_byte = -1;
+    reset_download_state();
 
-    ringbuf_init(&uart_tx_ringbuf, uart_tx_ringbuf_storage, sizeof(uart_tx_ringbuf_storage));
-
-    do {
-        run_tx_service_nonblocking();
-        rx_byte = uart_getchar_nonblocking();
+    while (true) {
+        const int rx_byte = uart_getchar_nonblocking();
 
         switch (state) {
             case STATE_IDLE:
                 if (rx_byte < 0) {
-                    continue;
+                    poll_advertise();
+                    break;
                 }
-                result = poll_download_start(rx_byte);
-                if (result == RESULT_SUCCESS) {
+                if (poll_download_start((char)rx_byte) == RESULT_SUCCESS) {
+                    reset_download_state();
+                    send_string_blocking("DL_START\n");
                     state = STATE_DOWNLOAD_IMAGE;
-                    send_string_nonblocking("DL_START\n");
-                } else if (result == RESULT_FAILURE) {
-                    state = STATE_ERROR;
-                    send_string_nonblocking("ERR_START\n");
                 }
                 break;
 
             case STATE_DOWNLOAD_IMAGE:
                 if (rx_byte < 0) {
-                    continue;
+                    break;
                 }
-                result = download_app(rx_byte);
-                if (result == RESULT_SUCCESS) {
-                    state = STATE_DOWNLOAD_CRC;
-                    send_string_nonblocking("DL_CRC\n");
-                } else if (result == RESULT_FAILURE) {
-                    state = STATE_ERROR;
-                    send_string_nonblocking("ERR_DL_IMG\n");
+                {
+                    const Result result = download_app(rx_byte);
+                    if (result == RESULT_SUCCESS) {
+                        reset_hex_parser();
+                        state = STATE_DOWNLOAD_CRC;
+                    } else if (result == RESULT_FAILURE) {
+                        fail_download("DL_ERROR\n", &state);
+                    }
                 }
                 break;
 
             case STATE_DOWNLOAD_CRC:
                 if (rx_byte < 0) {
-                    continue;
+                    break;
                 }
-                result = download_crc(rx_byte);
-                if (result == RESULT_SUCCESS) {
-                    state = STATE_VERIFY;
-                    send_string_nonblocking("CHECK_CRC\n");
-                } else if (result == RESULT_FAILURE) {
-                    state = STATE_ERROR;
-                    send_string_nonblocking("ERR_DL_CRC\n");
+                {
+                    const Result result = download_crc(rx_byte);
+                    if (result == RESULT_SUCCESS) {
+                        state = STATE_VERIFY;
+                    } else if (result == RESULT_FAILURE) {
+                        fail_download("DL_ERROR\n", &state);
+                    }
                 }
                 break;
 
             case STATE_VERIFY:
-                result = verify_app();
-                if (result == RESULT_SUCCESS) {
-                    state = STATE_BOOT_APP;
-                    // Block so the message gets logged before the app boots
+                if (verify_app() == RESULT_SUCCESS) {
                     send_string_blocking("BOOT_APP\n");
-                } else if (result == RESULT_FAILURE) {
-                    state = STATE_ERROR;
-                    send_string_nonblocking("ERR_VERIFY\n");
+                    state = STATE_BOOT_APP;
+                } else {
+                    fail_download("CRC_ERROR\n", &state);
                 }
                 break;
 
@@ -318,13 +318,9 @@ int main(void) {
                 boot_app();
                 break;
 
-            case STATE_ERROR:
-            default:  // intentional fall through
-                infinite_loop();
+            default:
+                hang();
                 break;
-        };
-
-    } while (true);  // Exits through boot_app()
-
-    infinite_loop();
+        }
+    }
 }

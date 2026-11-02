@@ -11,7 +11,7 @@
 - C smoke: startup/data init, CRC32, compiler store regression (`store_hazard`); `.sram` expected-file checks for memory results
 - CSR read/write (`csr_basic`, `csr_immediate`, `csr_mixed`): CSRRW/CSRRS/CSRRC and CSRRWI/CSRRSI/CSRRCI on implemented CSRs; load-use and ALU→CSR operand hazards, CSR rd→branch/store/CSR-rs1, CSR WB + load-use overlap, immediate/register CSR mix
 - Spike ISA cross-check: `make spike-ref` in `../test-fw/` (RV32I asm tests vs `expected/*.regs`; skips CSR/trap tests where Spike is not the intended reference — see `SPIKE_SKIP_TESTS` in `tests.mk`)
-- System smoke: `system_tb` checks firmware LED0, UART "Hello!\n", debug LEDs, and optional SRAM expected contents
+- System smoke: `system_tb` checks bootloader `BL_READY`, UART image download, LED0 on/off, debug LEDs, and optional SRAM expected contents
 
 ## Gaps to close (asm / sim)
 

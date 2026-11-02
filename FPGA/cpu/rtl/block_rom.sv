@@ -58,23 +58,25 @@ end
 
 `ifdef SYNTHESIS
 initial begin
-    $readmemh("firmware.hex", rom_word_array);
+    // ROM contents are the UART bootloader image (mem/bootloader.hex).
+    $readmemh("bootloader.hex", rom_word_array);
 end
 `else
 initial begin
     string rom_path;
     int rom_fd;
 
-    if (!$value$plusargs("FIRMWARE_HEX=%s", rom_path)) begin
-        rom_path = "firmware.hex";
+    if (!$value$plusargs("FIRMWARE_HEX=%s", rom_path) &&
+        !$value$plusargs("BOOTLOADER_HEX=%s", rom_path)) begin
+        rom_path = "bootloader.hex";
         rom_fd = $fopen(rom_path, "r");
         if (rom_fd == 0) begin
-            rom_path = "mem/firmware.hex";
+            rom_path = "mem/bootloader.hex";
             rom_fd = $fopen(rom_path, "r");
         end
         if (rom_fd == 0) begin
             // xsim cwd is cpu.sim/sim_1/behav/xsim.
-            rom_path = "../../../../../cpu/mem/firmware.hex";
+            rom_path = "../../../../../cpu/mem/bootloader.hex";
             rom_fd = $fopen(rom_path, "r");
         end
     end else begin
@@ -82,7 +84,7 @@ initial begin
     end
 
     if (rom_fd == 0) begin
-        $fatal(1, "block_rom: could not load firmware hex - run make in firmware/ and pass +FIRMWARE_HEX=<path> if needed");
+        $fatal(1, "block_rom: could not load bootloader hex - run make in firmware/ and pass +FIRMWARE_HEX=<path> if needed");
     end
     $fclose(rom_fd);
     $readmemh(rom_path, rom_word_array);

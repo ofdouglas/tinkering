@@ -12,7 +12,7 @@ help:
 	@echo "  make cputest              Run cpu/test-fw Verilator tests (MEM_LATENCY=1,2,4)"
 	@echo "  make sim-system           Run system_tb (Verilator, builds firmware)"
 	@echo "  make sim-system-vivado    Run system_tb in Vivado xsim"
-	@echo "  make firmware             Build demo firmware hex"
+	@echo "  make firmware             Build bootloader, main_app, and sim payload"
 
 test: cputest sim-system
 	@echo ""

@@ -9,7 +9,7 @@ C_DIR      := src/c
 COMMON_DIR := src/common
 EXPECTED_DIR := expected
 
-PREFIX  := riscv64-unknown-elf-
+include $(CPU_DIR)/riscv_toolchain.mk
 # Base RV32I + CSRs only: no M/A/F/D/C/B extensions. Matches rv32cpu RTL.
 ARCH    := -march=rv32i_zicsr -mabi=ilp32 -misa-spec=2.2
 ASFLAGS := $(ARCH) -Wa,-march=rv32i

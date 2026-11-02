@@ -6,28 +6,28 @@ module system_tb;
 
     localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
     localparam time UART_BIT_PERIOD = (CLK_PERIOD * 2) * 27 * 16; // x2 for 100->50 MHz conversion
-    localparam time TEST_TIMEOUT = 10ms;
-    localparam int SYSTEM_SRAM_WORDS = 2 ** (MEMORY_ADDR_MSB - 1);
-    localparam realtime LED0_PULSE_MIN_NS = 95_000.0;
-    localparam realtime LED0_PULSE_MAX_NS = 115_000.0;
+    // Bootloader polls UART with a 1-byte RX register; leave a gap so -O0 firmware
+    // can consume each byte before the next start bit.
+    localparam time UART_TX_GAP = UART_BIT_PERIOD * 16;
+    localparam time TEST_TIMEOUT = 50ms;
+    localparam int SYSTEM_SRAM_WORDS = 2 ** (SRAM_ADDR_MSB - 1);
+    localparam int SRAM_TEXT_WORD_INDEX = (32'h0000_8000) / 4;
+    localparam int MAX_APP_BYTES = 32 * 1024;
 
     logic clk;
     logic [7:0] led;
     logic uart_tx_out;
     logic uart_rx_in;
-    logic [7:0] uart_rx_queue [$]; // Queue of received UART bytes
-    logic led0_seen, led0_done, led0_pulse_ok;
-    logic led1_seen;
-    logic uart_seen;
-    logic hello_complete;
+    logic [7:0] uart_rx_queue [$];
+    logic [7:0] uart_rx_pending [$];
+    byte unsigned app_image [$];
+    logic led0_seen, led0_done;
+    logic protocol_done;
     logic test_failed;
     logic [7:0] led_prev;
     logic [31:0] expected_sram [0:SYSTEM_SRAM_WORDS-1];
     bit system_sram_expected_loaded;
     int unsigned system_sram_check_words;
-    realtime led0_on_time;
-    realtime led0_off_time;
-    realtime led0_pulse_duration;
 
     system dut (
         .clk_in      (clk),
@@ -150,9 +150,13 @@ module system_tb;
     task automatic dump_sram_range_summary();
         localparam int NUM_START_WORDS = 64;
         localparam int NUM_END_WORDS = 96;
+        localparam int NUM_TEXT_WORDS = 16;
 
         $display("SRAM first %0d words:", NUM_START_WORDS);
         dump_sram_words(0, NUM_START_WORDS);
+
+        $display("SRAM_TEXT first %0d words:", NUM_TEXT_WORDS);
+        dump_sram_words(SRAM_TEXT_WORD_INDEX, NUM_TEXT_WORDS);
 
         $display("SRAM last %0d words:", NUM_END_WORDS);
         dump_sram_words(SYSTEM_SRAM_WORDS - NUM_END_WORDS, NUM_END_WORDS);
@@ -169,22 +173,6 @@ module system_tb;
         $error("[%0t] system_tb failed", $time);
         $finish;
     endtask
-
-    function automatic logic [7:0] expected_uart_byte(input int index);
-        unique case (index)
-            0: expected_uart_byte = "H";
-            1: expected_uart_byte = "e";
-            2: expected_uart_byte = "l";
-            3: expected_uart_byte = "l";
-            4: expected_uart_byte = "o";
-            5: expected_uart_byte = "!";
-            6: expected_uart_byte = "\n";
-            7: expected_uart_byte = "H";
-            8: expected_uart_byte = "i";
-            9: expected_uart_byte = ".";
-            default: expected_uart_byte = 8'h00;
-        endcase
-    endfunction
 
     function automatic string abi_name(input int reg_idx);
         unique case (reg_idx)
@@ -288,61 +276,192 @@ module system_tb;
         end
         uart_rx_in = 1'b1;
         #(UART_BIT_PERIOD);
+        #(UART_TX_GAP);
     endtask
 
-    task automatic receive_uart_bytes;
+    task automatic send_uart_string(input string s);
+        for (int i = 0; i < s.len(); i++) begin
+            write_uart_byte(s[i]);
+        end
+    endtask
+
+    function automatic logic [7:0] hex_nibble_char(input logic [3:0] nibble);
+        if (nibble < 4'd10) begin
+            return 8'h30 + {4'b0, nibble};
+        end
+        return 8'h41 + {4'b0, nibble} - 8'd10;
+    endfunction
+
+    function automatic int unsigned crc32_ieee();
+        int unsigned crc;
+        crc = 32'hffff_ffff;
+        for (int i = 0; i < app_image.size(); i++) begin
+            crc ^= app_image[i];
+            for (int bit_i = 0; bit_i < 8; bit_i++) begin
+                if (crc[0]) begin
+                    crc = (crc >> 1) ^ 32'hEDB8_8320;
+                end else begin
+                    crc = crc >> 1;
+                end
+            end
+        end
+        return ~crc;
+    endfunction
+
+    task automatic uart_monitor;
         logic [7:0] rx_byte;
-        for (int i = 0; i < 10; i++) begin
+        forever begin
             read_uart_byte(rx_byte);
             uart_rx_queue.push_back(rx_byte);
-            if ((rx_byte !== expected_uart_byte(i))) begin
-                fail($sformatf("UART byte %0d mismatch: got 0x%02x expected 0x%02x",
-                    i, rx_byte, expected_uart_byte(i)));
-            end
-            if (i == 6) begin
-                hello_complete = 1'b1;
-            end
-        end
-        uart_seen = 1'b1;
-
-        for (int i = 0; i < 30; i++) begin
-            read_uart_byte(rx_byte);
-            uart_rx_queue.push_back(rx_byte);
+            uart_rx_pending.push_back(rx_byte);
         end
     endtask
 
-    task automatic expect_led_on;
+    task automatic pop_uart_byte(output logic [7:0] value);
+        while ((uart_rx_pending.size() == 0) && !test_failed) begin
+            @(posedge clk);
+        end
+        if (test_failed) begin
+            value = 8'h00;
+            return;
+        end
+        value = uart_rx_pending.pop_front();
+    endtask
+
+    task automatic wait_for_uart_line(input string expected);
+        string line;
+        logic [7:0] rx_byte;
+        line = "";
+        forever begin
+            pop_uart_byte(rx_byte);
+            if (test_failed) begin
+                return;
+            end
+            if (rx_byte == "\n") begin
+                break;
+            end
+            line = {line, $sformatf("%c", rx_byte)};
+        end
+        $display("[%0t] UART line: \"%s\"", $time, line);
+        if ((line == "DL_ERROR") || (line == "CRC_ERROR")) begin
+            fail($sformatf("bootloader error while waiting for %s: %s", expected, line));
+            return;
+        end
+        if (line != expected) begin
+            fail($sformatf("UART line mismatch: got \"%s\" expected \"%s\"", line, expected));
+        end
+    endtask
+
+    task automatic load_app_image;
+        string app_path;
+        int app_fd;
+        int ch;
+
+        app_image.delete();
+        if (!$value$plusargs("APP_BIN=%s", app_path)) begin
+            app_path = "led_toggle.bin";
+            app_fd = $fopen(app_path, "rb");
+            if (app_fd == 0) begin
+                app_path = "mem/led_toggle.bin";
+                app_fd = $fopen(app_path, "rb");
+            end
+            if (app_fd == 0) begin
+                app_path = "../../../../../cpu/mem/led_toggle.bin";
+                app_fd = $fopen(app_path, "rb");
+            end
+        end else begin
+            app_fd = $fopen(app_path, "rb");
+        end
+
+        if (app_fd == 0) begin
+            fail("could not load app image - pass +APP_BIN=<path> to led_toggle.bin");
+            return;
+        end
+
+        ch = $fgetc(app_fd);
+        while (ch != -1) begin
+            if (app_image.size() >= MAX_APP_BYTES) begin
+                $fclose(app_fd);
+                fail("app image exceeds SRAM_TEXT size");
+                return;
+            end
+            app_image.push_back(byte'(ch[7:0]));
+            ch = $fgetc(app_fd);
+        end
+        $fclose(app_fd);
+
+        if (app_image.size() == 0) begin
+            fail($sformatf("app image %s is empty", app_path));
+            return;
+        end
+        $display("system_tb: loaded %0d-byte app image from %s", app_image.size(), app_path);
+    endtask
+
+    task automatic send_boot_payload;
+        int unsigned crc;
+        byte unsigned img_byte;
+        logic [3:0] hi;
+        logic [3:0] lo;
+
+        send_uart_string("BOOT_IMG");
+        wait_for_uart_line("DL_START");
+        if (test_failed) begin
+            return;
+        end
+
+        for (int i = 0; i < app_image.size(); i++) begin
+            img_byte = app_image[i];
+            hi = img_byte[7:4];
+            lo = img_byte[3:0];
+            write_uart_byte(hex_nibble_char(hi));
+            write_uart_byte(hex_nibble_char(lo));
+        end
+        write_uart_byte("$");
+
+        crc = crc32_ieee();
+        write_uart_byte(hex_nibble_char(crc[31:28]));
+        write_uart_byte(hex_nibble_char(crc[27:24]));
+        write_uart_byte(hex_nibble_char(crc[23:20]));
+        write_uart_byte(hex_nibble_char(crc[19:16]));
+        write_uart_byte(hex_nibble_char(crc[15:12]));
+        write_uart_byte(hex_nibble_char(crc[11:8]));
+        write_uart_byte(hex_nibble_char(crc[7:4]));
+        write_uart_byte(hex_nibble_char(crc[3:0]));
+        write_uart_byte(";");
+
+        wait_for_uart_line("BOOT_APP");
+    endtask
+
+    task automatic bootloader_host;
+        load_app_image();
+        if (test_failed) begin
+            return;
+        end
+        wait_for_uart_line("BL_READY");
+        if (test_failed) begin
+            return;
+        end
+        send_boot_payload();
+        if (!test_failed) begin
+            protocol_done = 1'b1;
+            $display("[%0t] bootloader download complete", $time);
+        end
+    endtask
+
+    task automatic expect_led_toggle;
         forever begin
             @(posedge clk);
             check_debug_leds();
             if ((led[0] === 1'b1) && (!led0_seen)) begin
                 led0_seen = 1'b1;
-                led0_on_time = $realtime;
-                $display("[%0t] LED0 turned on at %s", $time, format_time(led0_on_time));
+                $display("[%0t] LED0 turned on", $time);
             end
-            if ((led[0] === 1'b0) && (led0_seen) && (!led0_done)) begin
-                led0_off_time = $realtime;
+            if ((led[0] === 1'b0) && led0_seen && (!led0_done)) begin
                 led0_done = 1'b1;
-                led0_pulse_duration = led0_off_time - led0_on_time;
-
-                if ((led0_pulse_duration >= LED0_PULSE_MIN_NS) &&
-                    (led0_pulse_duration <= LED0_PULSE_MAX_NS)) begin
-                    led0_pulse_ok = 1'b1;
-                end else begin
-                    fail($sformatf("LED0 pulse duration %s out of range %s-%s",
-                        format_time(led0_pulse_duration),
-                        format_time(LED0_PULSE_MIN_NS),
-                        format_time(LED0_PULSE_MAX_NS)));
-                end
-                $display("[%0t] LED0 turned off; pulse duration %s",
-                    $time, format_time(led0_pulse_duration));
+                $display("[%0t] LED0 turned off", $time);
+                return;
             end
-            if ((led[1] === 1'b1) && (!led1_seen)) begin
-                led1_seen = 1'b1;
-                $display("[%0t] LED1 turned on", $time);
-            end
-
-            if ((led0_pulse_ok && led1_seen) || test_failed) begin
+            if (test_failed) begin
                 return;
             end
         end
@@ -408,10 +527,7 @@ module system_tb;
         uart_rx_in = 1'b1;
         led0_seen = 1'b0;
         led0_done = 1'b0;
-        led0_pulse_ok = 1'b0;
-        led1_seen = 1'b0;
-        uart_seen = 1'b0;
-        hello_complete = 1'b0;
+        protocol_done = 1'b0;
         test_failed = 1'b0;
         load_optional_system_sram_expected();
     end
@@ -420,33 +536,23 @@ module system_tb;
         while (dut.rst_n !== 1'b1) begin
             @(posedge clk);
         end
+        uart_monitor();
+    end
 
+    initial begin
+        while (dut.rst_n !== 1'b1) begin
+            @(posedge clk);
+        end
         repeat (100) @(posedge clk);
         check_debug_leds();
-
-        // Wait until "Hello!\n" (7 bytes) is fully received before echo stimulus.
-        while (!hello_complete && !test_failed) begin
-            @(posedge clk);
-        end
-        if (!test_failed) begin
-            write_uart_byte("H");
-            write_uart_byte("i");
-            write_uart_byte(".");
-        end
+        bootloader_host();
     end
 
     initial begin
         while (dut.rst_n !== 1'b1) begin
             @(posedge clk);
         end
-        expect_led_on();
-    end
-
-    initial begin
-        while (dut.rst_n !== 1'b1) begin
-            @(posedge clk);
-        end
-        receive_uart_bytes();
+        expect_led_toggle();
     end
 
     initial begin
@@ -454,21 +560,21 @@ module system_tb;
             @(posedge clk);
         end
         #TEST_TIMEOUT;
-        fail($sformatf("timed out waiting for LED behavior and UART Hello message: led0_seen=%b, led0_done=%b, led0_pulse_ok=%b, led1_seen=%b, uart_seen=%b",
-            led0_seen, led0_done, led0_pulse_ok, led1_seen, uart_seen));
+        fail($sformatf("timed out waiting for bootloader download and LED0 toggle: protocol_done=%b led0_seen=%b led0_done=%b",
+            protocol_done, led0_seen, led0_done));
     end
 
     initial begin
         while (dut.rst_n !== 1'b1) begin
             @(posedge clk);
         end
-        while (!(led0_pulse_ok && led1_seen && uart_seen) && !test_failed) begin
+        while (!(protocol_done && led0_done) && !test_failed) begin
             @(posedge clk);
         end
         check_debug_leds();
         check_optional_system_sram_expected();
         if (!test_failed) begin
-            $display("[%0t] PASS: system basic behavior verified", $time);
+            $display("[%0t] PASS: bootloader downloaded app and LED0 toggled", $time);
         end
         dump_uart_buffer();
 
