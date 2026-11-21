@@ -43,3 +43,17 @@ Example:
 ```
 BOOT_IMG 7F FF FF FF 00 00 00 01 DE AD BE EF $ 0A FE 17 75 ;
 ```
+
+## Host vs board
+
+The same protocol is used on the FPGA UART and in a host-built bootloader
+(`make host-bootloader`) that speaks it over stdin/stdout. The Python
+downloader can talk to either:
+
+```
+python3 downloader.py app.bin /dev/ttyUSB0
+make test-download
+python3 downloader.py --host-test app.bin --bootloader build/host/bootloader
+```
+
+The board downloader resends `BOOT_IMG` if `BL_READY` keeps arriving.

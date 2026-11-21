@@ -12,10 +12,12 @@ logic clk;
 logic clk_locked;
 logic system_rst_n;
 assign system_rst_n = rst_n && clk_locked;
+logic reset_request; // from watchdog peripheral
 
 reset_control reset_controller(
     .clk(clk),
-    .rst_n(rst_n)
+    .rst_n(rst_n),
+    .reset_request(reset_request)
 );
 
 `ifdef VERILATOR
@@ -95,7 +97,8 @@ system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) peripherals (
     .uart_tx_out(uart_tx_out),
     .uart_rx_in(uart_rx_in),
     .mti_irq(mti_irq),
-    .mtime(mtime)
+    .mtime(mtime),
+    .reset_request(reset_request)
 );
 assign led = {debug_leds, gpio_led_enables[3:0]};
 

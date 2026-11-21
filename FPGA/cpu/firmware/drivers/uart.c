@@ -6,17 +6,18 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define UART_STATUS_REG     ((volatile uint32_t*)(UART_BASE + 0))
+#define UART_STATUS_REG ((volatile uint32_t*)(UART_BASE + 0))
 #define UART_IRQ_ENABLE_REG ((volatile uint32_t*)(UART_BASE + 4))
-#define UART_TX_DATA_REG    ((volatile uint8_t*)(UART_BASE + 8))
-#define UART_RX_DATA_REG    ((volatile uint8_t*)(UART_BASE + 12))
+#define UART_TX_DATA_REG ((volatile uint8_t*)(UART_BASE + 8))
+#define UART_RX_DATA_REG ((volatile uint8_t*)(UART_BASE + 12))
 
 #define UART_STATUS_TX_READY (1U << 0)
-#define UART_STATUS_RX_VALID (1U << 1)
+#define UART_STATUS_RX_NOT_EMPTY (1U << 1)
+#define UART_STATUS_RX_FIFO_FULL (1U << 2)
+#define UART_STATUS_RX_OVERRUN (1U << 3)
 
 #define UART_IRQ_ENABLE_TX_READY (1U << 0)
 #define UART_IRQ_ENABLE_RX_VALID (1U << 1)
-
 
 bool uart_putchar_nonblocking(char c) {
     if (!(*UART_STATUS_REG & UART_STATUS_TX_READY)) {
@@ -27,7 +28,7 @@ bool uart_putchar_nonblocking(char c) {
 }
 
 int uart_getchar_nonblocking(void) {
-    if (*UART_STATUS_REG & UART_STATUS_RX_VALID) {
+    if (*UART_STATUS_REG & UART_STATUS_RX_NOT_EMPTY) {
         return *UART_RX_DATA_REG;
     }
     return -1;
@@ -96,28 +97,55 @@ bool uart_send_string_nonblocking(const char* data, size_t length) {
 extern "C" {
 #endif
 
-void mei_isr(void) {
-    checkpoint(8);
+// Services the RX interrupt and returns true if data was received..
+inline bool uart_rx_isr(void) {
+    // checkpoint(8);
     const uint32_t status = *UART_STATUS_REG;
-    checkpoint(9);
-    if (status & UART_STATUS_RX_VALID) {
-        checkpoint(10);
+    // checkpoint(9);
+
+    if (status & UART_STATUS_RX_NOT_EMPTY) {
+        // checkpoint(10);
         const uint8_t data = *UART_RX_DATA_REG;
-        checkpoint(11);
+        // checkpoint(11);
         ringbuf_enqueue(&uart_rx_ringbuf, data);
-        checkpoint(12);
+        // checkpoint(12);
+        return true;
     }
+    return false;
+}
+
+// Services the TX interrupt and returns true if data was sent.
+inline bool uart_tx_isr(void) {
+    const uint32_t status = *UART_STATUS_REG;
 
     if (tx_pending && (status & UART_STATUS_TX_READY)) {
-        if (ringbuf_is_empty(&uart_tx_ringbuf)) {
-            *UART_IRQ_ENABLE_REG &= ~UART_IRQ_ENABLE_TX_READY;
-            tx_pending = false;
-            checkpoint(15);
-        } else {
+        if (!ringbuf_is_empty(&uart_tx_ringbuf)) {
             uint8_t data;
             ringbuf_dequeue(&uart_tx_ringbuf, &data);
             *UART_TX_DATA_REG = data;
-            checkpoint(14);
+            // checkpoint(14);
+            return true;
+        } else {
+            *UART_IRQ_ENABLE_REG &= ~UART_IRQ_ENABLE_TX_READY;
+            tx_pending = false;
+            // checkpoint(15);
+        }
+    }
+    return false;
+}
+
+void mei_isr(void) {
+    constexpr uint32_t kMaxLoopIterations = 8U;
+
+    for (uint32_t i = 0; i < kMaxLoopIterations; i++) {
+        if (!uart_rx_isr()) {
+            break;
+        }
+    }
+
+    for (uint32_t i = 0; i < kMaxLoopIterations; i++) {
+        if (!uart_tx_isr()) {
+            break;
         }
     }
 }

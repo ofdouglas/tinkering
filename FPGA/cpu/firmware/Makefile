@@ -4,7 +4,7 @@ FPGA_DIR = $(CPU_DIR)/..
 include $(CPU_DIR)/riscv_toolchain.mk
 ARCH   = -march=rv32i_zicsr -mabi=ilp32
 INC_DIRS = . $(sort $(patsubst %/,%,$(dir $(wildcard */*.h)))) $(FIRMWARE_DIR)/time
-CFLAGS = $(ARCH) -O0 -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
+CFLAGS = $(ARCH) -g -O3 -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
 CPP_DISABLE_FLAGS = -fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables
 CPPFLAGS = $(CFLAGS) $(CPP_DISABLE_FLAGS)
 LDFLAGS = $(ARCH) -nostdlib -Wl,--build-id=none -Wl,--print-memory-usage
@@ -37,7 +37,7 @@ SHARED_SRCS_S = system/exception.S system/start.S
 SHARED_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(SHARED_SRCS_C)) \
               $(patsubst %.S,$(BUILD_DIR)/%.o,$(SHARED_SRCS_S))
 
-BL_SRCS_C = booloader/main.c $(SHARED_SRCS_C)
+BL_SRCS_C = bootloader/main.c $(SHARED_SRCS_C)
 BL_SRCS_S = $(SHARED_SRCS_S)
 BL_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(BL_SRCS_C)) \
           $(patsubst %.S,$(BUILD_DIR)/%.o,$(BL_SRCS_S))
@@ -67,20 +67,50 @@ SYSTEM_TB_SRCS = \
 	$(CPU_DIR)/rtl/gpio.sv \
 	$(CPU_DIR)/rtl/uart_periph.sv \
 	$(CPU_DIR)/rtl/rv32_machine_timers.sv \
+	$(CPU_DIR)/rtl/watchdog.sv \
+	$(FPGA_DIR)/rtl/queue.sv \
 	$(FPGA_DIR)/rtl/uart.sv \
 	$(CPU_DIR)/rtl/system.sv \
 	$(CPU_DIR)/sim/system_tb.sv
 
+WDOG_RESET_MAIN_O = $(BUILD_DIR)/bootloader/wdog_reset_main.o
+WDOG_RESET_WDOG_O = $(BUILD_DIR)/drivers/watchdog.o
+WDOG_RESET_OBJS = $(filter-out $(BUILD_DIR)/bootloader/main.o,$(BL_OBJS)) \
+	$(WDOG_RESET_MAIN_O) $(WDOG_RESET_WDOG_O)
+WDOG_RESET_ELF = $(BUILD_DIR)/bootloader_wdog_reset.elf
+WDOG_RESET_HEX = $(BUILD_DIR)/bootloader_wdog_reset.hex
+WDOG_RESET_LST = $(BUILD_DIR)/bootloader_wdog_reset.lst
+
+HOST_CC ?= gcc
+HOST_CFLAGS = -DHOST_BUILD -O2 -Wall -Wextra -I.
+HOST_BL_DIR = $(BUILD_DIR)/host
+HOST_BL = $(HOST_BL_DIR)/bootloader
+HOST_BL_SRCS = bootloader/main.c \
+	bootloader/host/uart.c \
+	bootloader/host/time.c \
+	bootloader/host/platform.c
+
 .PHONY: all bootloader app sim-app cputest \
-	sim-system sim-system-verilator sim-system-vivado clean
+	sim-system sim-system-verilator sim-system-vivado sim-system-wdog-reset \
+	host-bootloader test-download clean
 
 all: bootloader app sim-app
 
 bootloader: $(HEX_INSTALL) $(BOOTLOADER_LST) $(BOOTLOADER_MAP) $(BOOTLOADER_SECTIONS)
 
-app: $(APP_HEX_INSTALL) $(APP_BIN) $(APP_LST)
+# app: $(APP_HEX_INSTALL) $(APP_BIN) $(APP_LST)
+app: $(APP_BIN) $(APP_LST)
 
 sim-app: $(SIM_APP_INSTALL)
+
+host-bootloader: $(HOST_BL)
+
+test-download: $(HOST_BL)
+	@mkdir -p $(HOST_BL_DIR)
+	python3 -c 'import pathlib; p=pathlib.Path("$(HOST_BL_DIR)/test_image.bin"); p.write_bytes(bytes(range(64)))'
+	python3 downloader.py --host-test $(HOST_BL_DIR)/test_image.bin \
+		--bootloader $(HOST_BL) \
+		--image-out $(HOST_BL_DIR)/received.bin
 
 cputest:
 	$(MAKE) -C ../test-fw sim
@@ -89,6 +119,10 @@ sim-system: $(HEX_INSTALL) $(SIM_APP_INSTALL) $(SYSTEM_SIM_BIN)
 	$(SYSTEM_SIM_BIN) +FIRMWARE_HEX=$(HEX_INSTALL) +APP_BIN=$(SIM_APP_BIN)
 
 sim-system-verilator: sim-system
+
+sim-system-wdog-reset: $(WDOG_RESET_HEX) $(SYSTEM_SIM_BIN)
+	@echo "=== system_tb watchdog reset (throwaway bootloader) ==="
+	$(SYSTEM_SIM_BIN) +FIRMWARE_HEX=$(WDOG_RESET_HEX) +WATCHDOG_RESET_TEST
 
 sim-system-vivado: $(HEX_INSTALL) $(SIM_APP_INSTALL)
 	@if [ "$(VIVADO)" = "vivado" ] && ! command -v vivado >/dev/null 2>&1; then \
@@ -122,13 +156,28 @@ $(HEX_INSTALL): $(BOOTLOADER_HEX) | $(MEM_DIR)
 	cp $< $@
 
 $(BOOTLOADER_LST): $(BOOTLOADER_ELF)
-	$(PREFIX)objdump -d -S $< > $@
+	$(PREFIX)objdump -d $< > $@
 
 $(BOOTLOADER_SECTIONS): $(BOOTLOADER_ELF)
 	$(PREFIX)objdump -h $< > $@
 
 $(BOOTLOADER_MAP): $(BOOTLOADER_ELF)
 	$(PREFIX)objdump -t $< > $@
+
+
+$(WDOG_RESET_ELF): $(WDOG_RESET_OBJS) $(FW_DEPS) | $(BUILD_DIR)
+	$(PREFIX)g++ $(CPPFLAGS) $(LDFLAGS) -T $(BOOTLOADER_LDSCRIPT) -o $@ $(WDOG_RESET_OBJS) -lgcc
+
+$(WDOG_RESET_HEX): $(WDOG_RESET_ELF)
+	@COPY_DATA_LMA=$$($(PREFIX)nm -g $< | awk '$$3=="_copy_data" {print $$1; exit}'); \
+	COPY_DATA_ROM=$$((0x$$COPY_DATA_LMA - 0x10000)); \
+	$(PREFIX)objcopy \
+		--only-section=.boot_rom_section \
+		--change-section-address .boot_rom_section=0 \
+		--only-section=.data \
+		--change-section-address .data=$$COPY_DATA_ROM \
+		-O verilog --verilog-data-width=4 $< $@
+	$(PREFIX)objdump -d -S $< > $(WDOG_RESET_LST)
 
 $(APP_ELF): $(APP_OBJS) $(FW_DEPS) | $(BUILD_DIR)
 	$(PREFIX)g++ $(CPPFLAGS) $(LDFLAGS) -T $(APP_LDSCRIPT) -o $@ $(APP_OBJS) -lgcc
@@ -172,6 +221,12 @@ $(SYSTEM_SIM_BIN): $(SYSTEM_TB_SRCS) $(HEX_INSTALL) | $(SYSTEM_SIM_DIR)
 		--top-module system_tb --Mdir $(SYSTEM_SIM_DIR) $(SYSTEM_TB_SRCS)
 
 $(SYSTEM_SIM_DIR):
+	mkdir -p $@
+
+$(HOST_BL): $(HOST_BL_SRCS) bootloader/host/platform.h | $(HOST_BL_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -o $@ $(HOST_BL_SRCS)
+
+$(HOST_BL_DIR):
 	mkdir -p $@
 
 clean:

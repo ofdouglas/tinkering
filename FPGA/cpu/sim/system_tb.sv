@@ -6,9 +6,6 @@ module system_tb;
 
     localparam time CLK_PERIOD = 10ns;  // 100 MHz, matches Nexys Video sysclk
     localparam time UART_BIT_PERIOD = (CLK_PERIOD * 2) * 27 * 16; // x2 for 100->50 MHz conversion
-    // Bootloader polls UART with a 1-byte RX register; leave a gap so -O0 firmware
-    // can consume each byte before the next start bit.
-    localparam time UART_TX_GAP = UART_BIT_PERIOD * 16;
     localparam time TEST_TIMEOUT = 50ms;
     localparam int SYSTEM_SRAM_WORDS = 2 ** (SRAM_ADDR_MSB - 1);
     localparam int SRAM_TEXT_WORD_INDEX = (32'h0000_8000) / 4;
@@ -276,7 +273,6 @@ module system_tb;
         end
         uart_rx_in = 1'b1;
         #(UART_BIT_PERIOD);
-        #(UART_TX_GAP);
     endtask
 
     task automatic send_uart_string(input string s);
@@ -523,6 +519,39 @@ module system_tb;
         end
     end
 
+    function automatic bit watchdog_reset_test_en();
+        return $test$plusargs("WATCHDOG_RESET_TEST");
+    endfunction
+
+    task automatic wait_for_watchdog_system_reset;
+        bit saw_reset_request;
+
+        while (dut.rst_n !== 1'b1) begin
+            @(posedge clk);
+        end
+        $display("[%0t] system_tb: POR released, waiting for watchdog reset", $time);
+
+        saw_reset_request = 1'b0;
+        while (dut.rst_n === 1'b1) begin
+            if (dut.reset_request === 1'b1) begin
+                if (!saw_reset_request) begin
+                    $display("[%0t] system_tb: watchdog reset_request asserted (prescaler_max=%0d watchdog_max=%0d)",
+                        $time,
+                        dut.peripherals.watchdog0.prescaler_max,
+                        dut.peripherals.watchdog0.watchdog_max);
+                end
+                saw_reset_request = 1'b1;
+            end
+            @(posedge clk);
+        end
+
+        if (!saw_reset_request) begin
+            fail("rst_n asserted without watchdog reset_request");
+            return;
+        end
+        $display("[%0t] PASS: watchdog reset_request caused rst_n to assert", $time);
+    endtask
+
     initial begin
         uart_rx_in = 1'b1;
         led0_seen = 1'b0;
@@ -540,19 +569,26 @@ module system_tb;
     end
 
     initial begin
-        while (dut.rst_n !== 1'b1) begin
-            @(posedge clk);
+        if (watchdog_reset_test_en()) begin
+            wait_for_watchdog_system_reset();
+            $finish;
+        end else begin
+            while (dut.rst_n !== 1'b1) begin
+                @(posedge clk);
+            end
+            repeat (100) @(posedge clk);
+            check_debug_leds();
+            bootloader_host();
         end
-        repeat (100) @(posedge clk);
-        check_debug_leds();
-        bootloader_host();
     end
 
     initial begin
-        while (dut.rst_n !== 1'b1) begin
-            @(posedge clk);
+        if (!watchdog_reset_test_en()) begin
+            while (dut.rst_n !== 1'b1) begin
+                @(posedge clk);
+            end
+            expect_led_toggle();
         end
-        expect_led_toggle();
     end
 
     initial begin
@@ -560,25 +596,30 @@ module system_tb;
             @(posedge clk);
         end
         #TEST_TIMEOUT;
-        fail($sformatf("timed out waiting for bootloader download and LED0 toggle: protocol_done=%b led0_seen=%b led0_done=%b",
-            protocol_done, led0_seen, led0_done));
+        if (watchdog_reset_test_en()) begin
+            fail("timed out waiting for watchdog to assert rst_n");
+        end else begin
+            fail($sformatf("timed out waiting for bootloader download and LED0 toggle: protocol_done=%b led0_seen=%b led0_done=%b",
+                protocol_done, led0_seen, led0_done));
+        end
     end
 
     initial begin
-        while (dut.rst_n !== 1'b1) begin
-            @(posedge clk);
+        if (!watchdog_reset_test_en()) begin
+            while (dut.rst_n !== 1'b1) begin
+                @(posedge clk);
+            end
+            while (!(protocol_done && led0_done) && !test_failed) begin
+                @(posedge clk);
+            end
+            check_debug_leds();
+            check_optional_system_sram_expected();
+            if (!test_failed) begin
+                $display("[%0t] PASS: bootloader downloaded app and LED0 toggled", $time);
+            end
+            dump_uart_buffer();
+            $finish;
         end
-        while (!(protocol_done && led0_done) && !test_failed) begin
-            @(posedge clk);
-        end
-        check_debug_leds();
-        check_optional_system_sram_expected();
-        if (!test_failed) begin
-            $display("[%0t] PASS: bootloader downloaded app and LED0 toggled", $time);
-        end
-        dump_uart_buffer();
-
-        $finish;
     end
 
 endmodule

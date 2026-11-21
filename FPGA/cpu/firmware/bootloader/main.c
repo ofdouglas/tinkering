@@ -6,6 +6,11 @@
 #include "drivers/uart.h"
 #include "linker/mem_map.h"
 
+#ifdef HOST_BUILD
+#include "bootloader/host/platform.h"
+#include <stdio.h>
+#endif
+
 /******************************************************************************
  * Constants and type definitions
  *****************************************************************************/
@@ -20,9 +25,14 @@ typedef enum state_e {
 
 typedef enum result_e { RESULT_PENDING, RESULT_FAILURE, RESULT_SUCCESS } Result;
 
+#ifdef HOST_BUILD
+static uint8_t host_image_buffer[SRAM_TEXT_SIZE];
+#define IMAGE_BUFFER host_image_buffer
+#else
 #define IMAGE_BUFFER ((volatile uint8_t*)SRAM_TEXT_BASE)
+#endif
 static const size_t kMaxImgBytes = SRAM_TEXT_SIZE;
-static const uint64_t kAdvertiseIntervalNs = 100ULL * NS_PER_MILLISEC;
+static const uint64_t kAdvertiseIntervalNs = 1000ULL * NS_PER_MILLISEC;
 static const char kAdvertiseMsg[] = "BL_READY\n";
 static const char kBootImgMsg[] = "BOOT_IMG";
 static const size_t kBootImgMsgLength = 8;
@@ -81,8 +91,7 @@ static bool is_whitespace(char c) {
 }
 
 static bool is_hex_digit(char c) {
-    return ((c >= '0') && (c <= '9')) || ((c >= 'A') && (c <= 'F')) ||
-           ((c >= 'a') && (c <= 'f'));
+    return ((c >= '0') && (c <= '9')) || ((c >= 'A') && (c <= 'F')) || ((c >= 'a') && (c <= 'f'));
 }
 
 static uint8_t nibble_from_char(char c) {
@@ -189,13 +198,12 @@ static Result download_app(int rx_byte) {
         return RESULT_SUCCESS;
     }
 
-    if (img_bytes_received >= kMaxImgBytes) {
-        return RESULT_FAILURE;
-    }
-
     uint8_t decoded_byte = 0;
     const Result result = poll_hex_byte((char)rx_byte, &decoded_byte);
     if (result == RESULT_SUCCESS) {
+        if (img_bytes_received >= kMaxImgBytes) {
+            return RESULT_FAILURE;
+        }
         IMAGE_BUFFER[img_bytes_received] = decoded_byte;
         img_bytes_received++;
         return RESULT_PENDING;
@@ -205,19 +213,18 @@ static Result download_app(int rx_byte) {
 
 static Result download_crc(int rx_byte) {
     if (rx_byte == ';') {
-        if (hex_byte_started) {
+        if (hex_byte_started || (crc_buffer_index != 4)) {
             return RESULT_FAILURE;
         }
-        return (crc_buffer_index == 4) ? RESULT_SUCCESS : RESULT_FAILURE;
-    }
-
-    if (crc_buffer_index >= 4) {
-        return RESULT_FAILURE;
+        return RESULT_SUCCESS;
     }
 
     uint8_t decoded_byte = 0;
     const Result result = poll_hex_byte((char)rx_byte, &decoded_byte);
     if (result == RESULT_SUCCESS) {
+        if (crc_buffer_index >= 4) {
+            return RESULT_FAILURE;
+        }
         crc_buffer[crc_buffer_index] = decoded_byte;
         crc_buffer_index++;
         return RESULT_PENDING;
@@ -230,11 +237,9 @@ static Result verify_app(void) {
         return RESULT_FAILURE;
     }
 
-    const uint32_t computed_crc =
-        crc32_bytes((const uint8_t*)IMAGE_BUFFER, img_bytes_received);
+    const uint32_t computed_crc = crc32_bytes((const uint8_t*)IMAGE_BUFFER, img_bytes_received);
     const uint32_t received_crc = ((uint32_t)crc_buffer[0] << 24) |
-                                  ((uint32_t)crc_buffer[1] << 16) |
-                                  ((uint32_t)crc_buffer[2] << 8) |
+                                  ((uint32_t)crc_buffer[1] << 16) | ((uint32_t)crc_buffer[2] << 8) |
                                   (uint32_t)crc_buffer[3];
     return (computed_crc == received_crc) ? RESULT_SUCCESS : RESULT_FAILURE;
 }
@@ -246,10 +251,14 @@ static void fail_download(const char* msg, State* state) {
 }
 
 static void boot_app(void) {
+#ifdef HOST_BUILD
+    host_boot_app((const uint8_t*)IMAGE_BUFFER, img_bytes_received);
+#else
     void (*entry)(void) = (void (*)(void))(uintptr_t)IMAGE_BUFFER;
     __asm__ volatile("" ::: "memory");
     entry();
     hang();
+#endif
 }
 
 /******************************************************************************
@@ -259,9 +268,18 @@ static void boot_app(void) {
 int main(void) {
     State state = STATE_IDLE;
     reset_download_state();
+#ifdef HOST_BUILD
+    uart_host_init();
+    setvbuf(stderr, NULL, _IONBF, 0);
+#endif
 
     while (true) {
         const int rx_byte = uart_getchar_nonblocking();
+#ifdef HOST_BUILD
+        if (rx_byte < 0) {
+            host_idle_wait();
+        }
+#endif
 
         switch (state) {
             case STATE_IDLE:
