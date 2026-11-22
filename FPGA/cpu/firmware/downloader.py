@@ -11,6 +11,7 @@ Host loopback (spawns the host-built bootloader on stdin/stdout):
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import select
 import subprocess
@@ -165,7 +166,7 @@ def runDownloader(
     return current_state
 
 
-def open_board_serial(tty: str) -> LineSerial:
+def open_board_serial(tty: str, write_timeout_s: float = 2.0) -> LineSerial:
     try:
         import serial
     except ImportError as exc:
@@ -180,7 +181,7 @@ def open_board_serial(tty: str) -> LineSerial:
         parity=serial.PARITY_NONE,
         stopbits=serial.STOPBITS_ONE,
         timeout=1,
-        write_timeout=2,
+        write_timeout=write_timeout_s,
         xonxoff=False,
         rtscts=False,
         dsrdtr=False,
@@ -190,6 +191,33 @@ def open_board_serial(tty: str) -> LineSerial:
     ser.reset_input_buffer()
     ser.reset_output_buffer()
     return ser
+
+
+def wait_for_verdict(ser, timeout_s: float) -> bool:
+    """Accept a complete UART line with PASS or FAIL as its verdict."""
+    deadline = time.monotonic() + timeout_s
+    pending = bytearray()
+    while time.monotonic() < deadline:
+        ser.timeout = max(0, min(1, deadline - time.monotonic()))
+        chunk = ser.read(ser.in_waiting or 1)
+        if not chunk:
+            continue
+        print(chunk.decode("ascii", errors="backslashreplace"), end="", flush=True)
+        pending.extend(chunk)
+        while b"\n" in pending:
+            line, _, pending = pending.partition(b"\n")
+            words = line.split()
+            if not words:
+                continue
+            if words[0] == b"FAIL" or words[-1] == b"FAIL":
+                return False
+            if line.strip() == b"BL_READY":
+                print("Board returned to the bootloader before a verdict")
+                return False
+            if words[-1] == b"PASS":
+                return True
+    print(f"\nTimed out after {timeout_s:g}s waiting for the application verdict")
+    return False
 
 
 def run_host_test(image_bytes: bytes, crc: int, bootloader: str, image_out: Optional[str]) -> DownloadState:
@@ -241,11 +269,16 @@ def parse_args() -> argparse.Namespace:
         nargs="?",
         help="Serial device for the target board, e.g. /dev/ttyUSB0",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--host-test",
         action="store_true",
         help="Spawn the host-built bootloader and download over stdin/stdout",
     )
+    mode.add_argument("--board-test", metavar="RESET_TTY",
+                      help="Reset through this debug UART and wait for the app verdict")
+    parser.add_argument("--test-timeout", type=float, default=10.0, metavar="SECONDS",
+                        help="Time allowed for the application verdict after BOOT_APP (default: 10)")
     parser.add_argument(
         "--bootloader",
         default=os.path.join(os.path.dirname(__file__), "build/host/bootloader"),
@@ -256,7 +289,10 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Host bootloader writes the received image here (host-test only)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not math.isfinite(args.test_timeout) or args.test_timeout <= 0:
+        parser.error("--test-timeout must be finite and positive")
+    return args
 
 
 def board_timeout_s(image_bytes: bytes, crc: int) -> float:
@@ -294,13 +330,20 @@ def main() -> None:
                 sys.exit(1)
             print(f"Host image dump matched ({len(received)} bytes)")
     else:
-        with open_board_serial(args.tty) as ser:
+        timeout_s = board_timeout_s(firmware_data, firmware_crc)
+        with open_board_serial(args.tty, timeout_s) as ser:
+            if args.board_test:
+                with open_board_serial(args.board_test) as reset:
+                    reset.write(b"\x8f")
+                    reset.flush()
             result = runDownloader(
                 firmware_data,
                 firmware_crc,
                 ser,
-                timeout_s=board_timeout_s(firmware_data, firmware_crc),
+                timeout_s=timeout_s,
             )
+            if args.board_test and result is DownloadState.SUCCESS:
+                sys.exit(0 if wait_for_verdict(ser, args.test_timeout) else 1)
 
     if result is DownloadState.SUCCESS:
         print("Download successful")

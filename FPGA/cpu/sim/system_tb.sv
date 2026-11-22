@@ -15,6 +15,8 @@ module system_tb;
     logic [7:0] led;
     logic uart_tx_out;
     logic uart_rx_in;
+    logic debug_uart_tx;
+    logic debug_uart_rx;
     logic [7:0] uart_rx_queue [$];
     logic [7:0] uart_rx_pending [$];
     byte unsigned app_image [$];
@@ -30,12 +32,16 @@ module system_tb;
         .clk_in      (clk),
         .led         (led),
         .uart_tx_out (uart_tx_out),
-        .uart_rx_in  (uart_rx_in)
+        .uart_rx_in  (uart_rx_in),
+        .debug_uart_tx(debug_uart_tx),
+        .debug_uart_rx(debug_uart_rx)
     );
 
     initial begin
         clk = 1'b0;
         forever #(CLK_PERIOD / 2) clk = ~clk;
+
+        debug_uart_tx = 1'b1;
     end
 
     task automatic dump_cpu_context;

@@ -130,8 +130,13 @@ module uart #(parameter kLoopback = 0)(
                         end
                     end else begin                  // Normal bit received
                         rx_bit_count <= rx_bit_count + 1;
+                    
+                        // Original code: waiting until rx_sample_count == 8 and then sampling 8 periods delayed
+                        // is 16 total periods; this samples near the end of the bit and therefore is flaky. 
+                        // rx_bits <= {rx_samples[8], rx_bits[8:1]}; // Original code
+
                         // TODO: majority vote
-                        rx_bits <= {rx_samples[8], rx_bits[8:1]};
+                        rx_bits <= {rx_sync[0], rx_bits[8:1]};
                     end
 
                 // Start-bit detection

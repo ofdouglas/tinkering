@@ -1,3 +1,4 @@
+THIRD_PARTY_DIR ?= $(HOME)/Design/third_party
 FIRMWARE_DIR = ../../../Firmware
 CPU_DIR = ..
 FPGA_DIR = $(CPU_DIR)/..
@@ -27,6 +28,14 @@ APP_BIN = $(BUILD_DIR)/main_app.bin
 APP_HEX = $(BUILD_DIR)/main_app.hex
 APP_LST = $(BUILD_DIR)/main_app.lst
 APP_HEX_INSTALL = $(MEM_DIR)/main_app.hex
+ARITHMETIC_BIN = $(BUILD_DIR)/arithmetic_helpers.bin
+
+BOARD_TTY ?= /dev/nexys-video
+RESET_TTY ?= /dev/ttl234
+# Select a board test or the coremark / coremark_validation benchmark.
+BOARD_TEST ?= arithmetic_helpers
+BOARD_TEST_IMAGE ?= $(BUILD_DIR)/$(BOARD_TEST).bin
+TEST_TIMEOUT ?= $(if $(filter coremark coremark_validation,$(BOARD_TEST)),180,10)
 
 SIM_APP_ELF = $(BUILD_DIR)/led_toggle.elf
 SIM_APP_BIN = $(BUILD_DIR)/led_toggle.bin
@@ -37,18 +46,9 @@ SHARED_SRCS_S = system/exception.S system/start.S
 SHARED_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(SHARED_SRCS_C)) \
               $(patsubst %.S,$(BUILD_DIR)/%.o,$(SHARED_SRCS_S))
 
-BL_SRCS_C = bootloader/main.c $(SHARED_SRCS_C)
-BL_SRCS_S = $(SHARED_SRCS_S)
-BL_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(BL_SRCS_C)) \
-          $(patsubst %.S,$(BUILD_DIR)/%.o,$(BL_SRCS_S))
-
-APP_SRCS_CPP = app/main.cpp
-APP_OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(APP_SRCS_CPP)) $(SHARED_OBJS)
-
+BL_OBJS = $(BUILD_DIR)/bootloader/main.o $(SHARED_OBJS)
+APP_OBJS = $(BUILD_DIR)/app/main.o $(SHARED_OBJS)
 SIM_APP_OBJS = $(BUILD_DIR)/app/led_toggle.o
-
-FW_DEPS = $(wildcard *.c *.cpp *.s *.S *.h *.ld) \
-          $(wildcard */*.c */*.cpp */*.h */*.s */*.S */*.ld)
 
 SYSTEM_SIM_DIR = $(BUILD_DIR)/system_tb
 SYSTEM_SIM_BIN = $(SYSTEM_SIM_DIR)/Vsystem_tb
@@ -71,7 +71,8 @@ SYSTEM_TB_SRCS = \
 	$(FPGA_DIR)/rtl/queue.sv \
 	$(FPGA_DIR)/rtl/uart.sv \
 	$(CPU_DIR)/rtl/system.sv \
-	$(CPU_DIR)/sim/system_tb.sv
+	$(CPU_DIR)/sim/system_tb.sv \
+	$(CPU_DIR)/rtl/debug_uart_controller.sv
 
 WDOG_RESET_MAIN_O = $(BUILD_DIR)/bootloader/wdog_reset_main.o
 WDOG_RESET_WDOG_O = $(BUILD_DIR)/drivers/watchdog.o
@@ -92,16 +93,41 @@ HOST_BL_SRCS = bootloader/main.c \
 
 .PHONY: all bootloader app sim-app cputest \
 	sim-system sim-system-verilator sim-system-vivado sim-system-wdog-reset \
-	host-bootloader test-download clean
+	host-bootloader test-download board-test flash serial reset clean
 
 all: bootloader app sim-app
 
 bootloader: $(HEX_INSTALL) $(BOOTLOADER_LST) $(BOOTLOADER_MAP) $(BOOTLOADER_SECTIONS)
 
-# app: $(APP_HEX_INSTALL) $(APP_BIN) $(APP_LST)
 app: $(APP_BIN) $(APP_LST)
 
+.PHONY: arithmetic-helpers flash-arithmetic-helpers
+arithmetic-helpers: $(ARITHMETIC_BIN)
+
+flash-arithmetic-helpers: $(ARITHMETIC_BIN)
+	python3 downloader.py "$<" "$(BOARD_TTY)"
+
+BOARD_TEST_ELFS = $(addprefix $(BUILD_DIR)/,arithmetic_helpers.elf chacha20.elf xorshift32.elf)
+$(BOARD_TEST_ELFS): $(BUILD_DIR)/%.elf: $(BUILD_DIR)/tests/%.o $(SHARED_OBJS) $(APP_LDSCRIPT)
+	$(PREFIX)g++ $(LDFLAGS) -T $(APP_LDSCRIPT) -o $@ $(filter %.o,$^) -lgcc
+
+include benchmarks/coremark/coremark.mk
+
 sim-app: $(SIM_APP_INSTALL)
+
+flash: $(APP_BIN)
+	python3 downloader.py "$<" "$(BOARD_TTY)"
+
+# Firmware prints a newline-terminated PASS or FAIL verdict after boot.
+board-test: $(BOARD_TEST_IMAGE)
+	python3 -u downloader.py "$<" "$(BOARD_TTY)" --board-test "$(RESET_TTY)" --test-timeout "$(TEST_TIMEOUT)"
+
+serial:
+	picocom -b 115200 "$(BOARD_TTY)" --imap lfcrlf
+
+reset:
+	stty -F "$(RESET_TTY)" 115200 raw -echo -opost && printf '\217' > "$(RESET_TTY)"
+
 
 host-bootloader: $(HOST_BL)
 
@@ -138,7 +164,7 @@ $(BUILD_DIR):
 $(MEM_DIR):
 	mkdir -p $@
 
-$(BOOTLOADER_ELF): $(BL_OBJS) $(FW_DEPS) | $(BUILD_DIR)
+$(BOOTLOADER_ELF): $(BL_OBJS) $(BOOTLOADER_LDSCRIPT) | $(BUILD_DIR)
 	$(PREFIX)g++ $(CPPFLAGS) $(LDFLAGS) -T $(BOOTLOADER_LDSCRIPT) -o $@ $(BL_OBJS) -lgcc
 
 $(BOOTLOADER_HEX): $(BOOTLOADER_ELF)
@@ -165,7 +191,7 @@ $(BOOTLOADER_MAP): $(BOOTLOADER_ELF)
 	$(PREFIX)objdump -t $< > $@
 
 
-$(WDOG_RESET_ELF): $(WDOG_RESET_OBJS) $(FW_DEPS) | $(BUILD_DIR)
+$(WDOG_RESET_ELF): $(WDOG_RESET_OBJS) $(BOOTLOADER_LDSCRIPT) | $(BUILD_DIR)
 	$(PREFIX)g++ $(CPPFLAGS) $(LDFLAGS) -T $(BOOTLOADER_LDSCRIPT) -o $@ $(WDOG_RESET_OBJS) -lgcc
 
 $(WDOG_RESET_HEX): $(WDOG_RESET_ELF)
@@ -179,10 +205,10 @@ $(WDOG_RESET_HEX): $(WDOG_RESET_ELF)
 		-O verilog --verilog-data-width=4 $< $@
 	$(PREFIX)objdump -d -S $< > $(WDOG_RESET_LST)
 
-$(APP_ELF): $(APP_OBJS) $(FW_DEPS) | $(BUILD_DIR)
+$(APP_ELF): $(APP_OBJS) $(APP_LDSCRIPT) | $(BUILD_DIR)
 	$(PREFIX)g++ $(CPPFLAGS) $(LDFLAGS) -T $(APP_LDSCRIPT) -o $@ $(APP_OBJS) -lgcc
 
-$(APP_BIN): $(APP_ELF)
+$(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf
 	$(PREFIX)objcopy -O binary $< $@
 
 $(APP_HEX): $(APP_BIN)
@@ -198,23 +224,20 @@ $(APP_LST): $(APP_ELF)
 $(SIM_APP_ELF): $(SIM_APP_OBJS) $(SIM_APP_LDSCRIPT) | $(BUILD_DIR)
 	$(PREFIX)g++ $(CPPFLAGS) $(LDFLAGS) -T $(SIM_APP_LDSCRIPT) -o $@ $(SIM_APP_OBJS) -lgcc
 
-$(SIM_APP_BIN): $(SIM_APP_ELF)
-	$(PREFIX)objcopy -O binary $< $@
-
 $(SIM_APP_INSTALL): $(SIM_APP_BIN) | $(MEM_DIR)
 	cp $< $@
 
-$(BUILD_DIR)/%.o: %.S $(FW_DEPS) | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: %.S Makefile | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	$(PREFIX)g++ $(CPPFLAGS) -c $< -o $@
+	$(PREFIX)g++ $(CPPFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/%.o: %.c $(FW_DEPS) | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: %.c Makefile | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	$(PREFIX)g++ $(CPPFLAGS) -c $< -o $@
+	$(PREFIX)g++ $(CPPFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/%.o: %.cpp $(FW_DEPS) | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: %.cpp Makefile | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	$(PREFIX)g++ $(CPPFLAGS) -c $< -o $@
+	$(PREFIX)g++ $(CPPFLAGS) -MMD -MP -c $< -o $@
 
 $(SYSTEM_SIM_BIN): $(SYSTEM_TB_SRCS) $(HEX_INSTALL) | $(SYSTEM_SIM_DIR)
 	verilator --binary -sv --timing -Wno-TIMESCALEMOD -Wno-WIDTHEXPAND \
@@ -233,3 +256,5 @@ clean:
 	rm -rf $(BUILD_DIR) *.o *.elf *.hex *.lst *.map *.sections \
 		$(MEM_DIR)/bootloader.hex $(MEM_DIR)/main_app.hex \
 		$(MEM_DIR)/led_toggle.bin $(MEM_DIR)/firmware.hex
+
+-include $(wildcard $(BUILD_DIR)/*/*.d)

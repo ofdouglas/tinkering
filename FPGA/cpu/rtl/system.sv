@@ -4,7 +4,9 @@ module system(
     input  logic clk_in,
     output logic [7:0] led,
     output logic uart_tx_out,
-    input logic uart_rx_in
+    input logic uart_rx_in,
+    output logic debug_uart_tx,
+    input logic debug_uart_rx
 );
 
 logic rst_n;
@@ -12,7 +14,10 @@ logic clk;
 logic clk_locked;
 logic system_rst_n;
 assign system_rst_n = rst_n && clk_locked;
-logic reset_request; // from watchdog peripheral
+logic watchdog_reset_request; // from watchdog peripheral
+logic debug_reset_request; // from debug UART
+logic reset_request; // combined reset request
+assign reset_request = watchdog_reset_request || debug_reset_request;
 
 reset_control reset_controller(
     .clk(clk),
@@ -35,6 +40,14 @@ clk_wiz_0 clk_wiz(
     .clk_in1(clk_in)
 );
 `endif
+
+debug_uart_controller debug_uart_controller_inst(
+    .clk(clk),
+    .rst_n(rst_n),
+    .debug_uart_rx(debug_uart_rx),
+    .debug_uart_tx(debug_uart_tx),
+    .debug_reset_request(debug_reset_request)
+);
 
 // Instruction ROM for the CPU (private access)
 bus_slave_interface #(.ADDR_MSB(ROM_ADDR_MSB)) rom_fetch();
@@ -98,7 +111,7 @@ system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) peripherals (
     .uart_rx_in(uart_rx_in),
     .mti_irq(mti_irq),
     .mtime(mtime),
-    .reset_request(reset_request)
+    .reset_request(watchdog_reset_request)
 );
 assign led = {debug_leds, gpio_led_enables[3:0]};
 

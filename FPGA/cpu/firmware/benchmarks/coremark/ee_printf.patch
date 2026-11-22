@@ -1,0 +1,43 @@
+--- upstream/ee_printf.c
++++ fpga/ee_printf.c
+@@ -659,24 +659,9 @@
+     return str - buf;
+ }
+ 
+-void
+-uart_send_char(char c)
+-{
+-#error "You must implement the method uart_send_char to use this file!\n";
+-    /*	Output of a char to a UART usually follows the following model:
+-            Wait until UART is ready
+-            Write char to UART
+-            Wait until UART is done
+-
+-            Or in code:
+-            while (*UART_CONTROL_ADDRESS != UART_READY);
+-            *UART_DATA_ADDRESS = c;
+-            while (*UART_CONTROL_ADDRESS != UART_READY);
+-
+-            Check the UART sample code on your platform or the board
+-       documentation.
+-    */
+-}
++// FPGA port: stream the formatted output through the board UART.
++extern void coremark_putchar(char c);
++extern void coremark_observe_message(const char *text);
+ 
+ int
+ ee_printf(const char *fmt, ...)
+@@ -691,10 +676,11 @@
+     p = buf;
+     while (*p)
+     {
+-        uart_send_char(*p);
++        coremark_putchar(*p);
+         n++;
+         p++;
+     }
+ 
++    coremark_observe_message(buf);
+     return n;
+ }
