@@ -1,10 +1,16 @@
 # RV32I CPU Working Document
 
+## BUGS
+
+* **Lost trap redirect.** A younger decode stall can hold the fetch PC while an older trap updates the CSRs. An `ecall` followed by a load and its consumer can skip the handler.
+* **Instruction access fault hangs fetch.** A fetch from an unmapped address asserts `fetch_fault` with `fetch_valid` low. The fault never reaches the trap stage as a valid entry, and the PC stays stuck.
+* **Misaligned taken branch executes the wrong word.** On RV32I, a taken branch to `0x10002` must trap at the branch instruction. The fetch port drops the low address bits and supplies the instruction at `0x10000` instead.
+
+
 ## TODOs
 * Refine trap handling: invalid fetch, bus errors, unaligned errors, invalid CSR access
 * General RTL cleanup
 * Periphal addressing cleanup
-* Better instruction fetch
 * Better load / store unit
 * Priviledge levels
 * Flush fewer instructions for CSR hazard

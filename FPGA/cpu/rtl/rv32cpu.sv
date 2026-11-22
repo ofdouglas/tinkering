@@ -512,7 +512,7 @@ always_comb begin
 
     branch_redirect_predicted = branch_valid && branch_backwards;
     address_sum               = fetch_regs.fetch_pc + immediate_bits;
-    branch_pc_predicted       = {address_sum[31:2], 2'b00};
+    branch_pc_predicted       = {address_sum[31:1], 1'b0};
 end
 
 always_ff @(posedge clk) begin
@@ -692,7 +692,8 @@ always_comb begin
     branch_pc = {address_sum[31:1], 1'b0};
 
     branch_taken = decode_regs.jump_branch_ctrl.is_branch_instr && compare_result;
-    branch_redirect_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr);
+    branch_redirect_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr) 
+                            && !decode_regs.branch_redirect_predicted;
 
     // Only handles the case where the branch is predicted as taken but it was not taken.
     branch_redirect_mispredicted = decode_regs.valid && !branch_taken && decode_regs.branch_redirect_predicted;

@@ -195,11 +195,11 @@ logic        fetch_fault;
 
 always_comb begin
     // TODO: only need to compare MEMORY_ADDR_MSB:2 bits of the address, plus fetch_type
-    is_rom_fetch  = (cpu_fetch_addr[31:28] == REGION_BOOT_ROM);
-    is_sram_fetch = (cpu_fetch_addr[31:28] == REGION_SHARED_RAM);
     fetch_hit     = (cpu_fetch_addr == pending_fetch_addr) && !is_empty;
     pc_next       = cpu_fetch_addr + 1'b1; // Word addressed
     pc_to_fetch   = fetch_hit ? pc_next : cpu_fetch_addr;
+    is_rom_fetch  = (pc_to_fetch[31:28] == REGION_BOOT_ROM);
+    is_sram_fetch = (pc_to_fetch[31:28] == REGION_SHARED_RAM);
 
     unique case (pending_fetch_type)
         FETCH_ROM: begin
