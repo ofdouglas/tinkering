@@ -1,11 +1,9 @@
 # CoreMark on the RV32I FPGA
 
-From the FPGA project root, run the performance and validation images in sequence.
-
-```sh
-make -C cpu/firmware board-test BOARD_TEST=coremark
-make -C cpu/firmware board-test BOARD_TEST=coremark_validation
-```
+From the FPGA project root, run `make coremark` with the target bitstream
+already programmed. The target loads the validation image first and then the
+performance image. Read the final `Measured iterations/sec` line for the score.
+Record hardware results in the [RTL score history](../../../docs/coremark.md).
 
 Both images use the upstream 2,000-byte static working set, one context, and
 1,500 iterations. They differ only in their volatile seed values. The runner

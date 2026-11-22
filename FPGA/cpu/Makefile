@@ -1,6 +1,9 @@
 # CPU/SoC verification from FPGA/cpu.
 # Verilator is the default. Vivado xsim is optional (sim-system-vivado).
 
+RTL_BUILD_ID ?= $(shell git -C ../.. rev-parse --short=8 HEAD)
+export RTL_BUILD_ID
+
 .PHONY: help test cputest sim-system sim-system-verilator sim-system-vivado sim-system-wdog-reset firmware sim-watchdog
 
 .DEFAULT_GOAL := help

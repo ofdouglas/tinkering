@@ -29,3 +29,9 @@ $(BUILD_DIR)/coremark.elf $(BUILD_DIR)/coremark_validation.elf: $(BUILD_DIR)/%.e
 	$(PREFIX)g++ $(LDFLAGS) -T $(APP_LDSCRIPT) -o $@ $(filter %.o,$^) -lgcc
 
 -include $(wildcard $(COREMARK_DIR)/*.d)
+
+.PHONY: coremark
+coremark:
+	$(MAKE) board-test BOARD_TEST=coremark_validation
+	@echo "CoreMark performance run (score in measured iterations/sec)"
+	$(MAKE) board-test BOARD_TEST=coremark

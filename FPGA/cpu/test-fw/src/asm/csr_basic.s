@@ -167,7 +167,7 @@ _start:
 
     /* --- Direct R/W of remaining implemented CSRs (x1–x13 snapshotted above) --- */
     csrrs x1,  marchid, x0     /* verify x1  = 0x000000fd */
-    csrrs x2,  mimpid, x0      /* verify x2  = 0x00000001 */
+    csrrs x2,  mconfigptr, x0  /* verify x2  = 0x00000000 */
     csrrs x3,  mhartid, x0     /* verify x3  = 0x00000000 */
 
     csrrs x4,  mstatus, x0     /* verify x4  = 0x00000000 */

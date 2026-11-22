@@ -2,6 +2,11 @@
 set script_dir [file dirname [file normalize [info script]]]
 set hex_src [file normalize [file join $script_dir .. mem bootloader.hex]]
 
+# This script is the synth_1 pre-hook, so refresh the ID for builds started
+# from either the GUI or Tcl.
+source [file join $script_dir set_rtl_build_id.tcl]
+set_rtl_build_id
+
 if {[info exists synth_dir]} {
     set run_dir $synth_dir
 } elseif {[llength [get_runs -quiet synth_1]]} {

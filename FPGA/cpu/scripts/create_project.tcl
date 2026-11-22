@@ -128,6 +128,9 @@ set_property top system [current_fileset]
 set_property top system_tb [get_filesets sim_1]
 set_property top_lib xil_defaultlib [get_filesets sim_1]
 
+source [file join $script_dir set_rtl_build_id.tcl]
+set_rtl_build_id
+
 set copy_tcl [file normalize [file join $script_dir copy_firmware.tcl]]
 add_files -fileset utils_1 -norecurse $copy_tcl
 set_property STEPS.SYNTH_DESIGN.TCL.PRE $copy_tcl [get_runs synth_1]

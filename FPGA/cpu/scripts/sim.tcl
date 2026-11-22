@@ -4,6 +4,7 @@ set cpu_root   [file normalize [file join $script_dir ..]]
 set hex_src    [file join $cpu_root mem bootloader.hex]
 set app_src    [file join $cpu_root mem led_toggle.bin]
 set proj_file  [file normalize [file join $script_dir .. .. vivado cpu cpu.xpr]]
+source         [file join $script_dir set_rtl_build_id.tcl]
 
 if {![file exists $hex_src]} {
     error "bootloader.hex not found at $hex_src — run: make -C $cpu_root/firmware"
@@ -13,6 +14,7 @@ if {[current_project -quiet] eq ""} {
     open_project $proj_file
 }
 
+set_rtl_build_id
 set xsim_dir [file join [get_property DIRECTORY [current_project]] cpu.sim sim_1 behav xsim]
 file mkdir $xsim_dir
 file copy -force $hex_src [file join $xsim_dir bootloader.hex]

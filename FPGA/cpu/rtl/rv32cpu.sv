@@ -30,6 +30,9 @@ module rv32cpu #(
     input  logic                wr_ack
 );
 
+`ifndef RTL_BUILD_ID
+    `define RTL_BUILD_ID 32'h00000000
+`endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Core Registers, Special Registers, and Pipeline Registers
@@ -257,7 +260,7 @@ always_comb begin
             case (csr_machine_info_offset_e'(csr_offset_bits))
                 CSR_ADDRESS_MVENDORID:  csr_read = 32'h00000000;
                 CSR_ADDRESS_MARCHID:    csr_read = 32'h000000FD;
-                CSR_ADDRESS_MIMPID:     csr_read = 32'h00000001;
+                CSR_ADDRESS_MIMPID:     csr_read = `RTL_BUILD_ID;
                 CSR_ADDRESS_MHARTID:    csr_read = 32'h00000000;
                 CSR_ADDRESS_MCONFIGPTR: csr_read = 32'h00000000;
                 default:                invalid_csr_read_address = 1'b1;

@@ -52,6 +52,8 @@ SIM_APP_OBJS = $(BUILD_DIR)/app/led_toggle.o
 
 SYSTEM_SIM_DIR = $(BUILD_DIR)/system_tb
 SYSTEM_SIM_BIN = $(SYSTEM_SIM_DIR)/Vsystem_tb
+RTL_BUILD_ID ?= $(shell git -C ../../.. rev-parse --short=8 HEAD)
+SYSTEM_SIM_BUILD_ID_STAMP = $(SYSTEM_SIM_DIR)/.rtl-build-id-$(RTL_BUILD_ID)
 VIVADO_BAT ?= $(lastword $(wildcard /mnt/c/Xilinx/Vivado/*/bin/vivado.bat))
 VIVADO ?= $(if $(VIVADO_BAT),cmd.exe /C $(VIVADO_BAT),vivado)
 SYSTEM_TB_SRCS = \
@@ -72,7 +74,8 @@ SYSTEM_TB_SRCS = \
 	$(FPGA_DIR)/rtl/uart.sv \
 	$(CPU_DIR)/rtl/system.sv \
 	$(CPU_DIR)/sim/system_tb.sv \
-	$(CPU_DIR)/rtl/debug_uart_controller.sv
+	$(CPU_DIR)/rtl/debug_uart_controller.sv \
+	$(CPU_DIR)/rtl/instruction_prefetch.sv \
 
 WDOG_RESET_MAIN_O = $(BUILD_DIR)/bootloader/wdog_reset_main.o
 WDOG_RESET_WDOG_O = $(BUILD_DIR)/drivers/watchdog.o
@@ -239,9 +242,14 @@ $(BUILD_DIR)/%.o: %.cpp Makefile | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
 	$(PREFIX)g++ $(CPPFLAGS) -MMD -MP -c $< -o $@
 
-$(SYSTEM_SIM_BIN): $(SYSTEM_TB_SRCS) $(HEX_INSTALL) | $(SYSTEM_SIM_DIR)
+$(SYSTEM_SIM_BIN): $(SYSTEM_TB_SRCS) $(HEX_INSTALL) $(SYSTEM_SIM_BUILD_ID_STAMP) | $(SYSTEM_SIM_DIR)
 	verilator --binary -sv --timing -Wno-TIMESCALEMOD -Wno-WIDTHEXPAND \
+		"-DRTL_BUILD_ID=32'h$(RTL_BUILD_ID)" \
 		--top-module system_tb --Mdir $(SYSTEM_SIM_DIR) $(SYSTEM_TB_SRCS)
+
+$(SYSTEM_SIM_BUILD_ID_STAMP): | $(SYSTEM_SIM_DIR)
+	rm -f $(SYSTEM_SIM_DIR)/.rtl-build-id-*
+	touch $@
 
 $(SYSTEM_SIM_DIR):
 	mkdir -p $@

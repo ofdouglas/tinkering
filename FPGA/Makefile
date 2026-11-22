@@ -8,7 +8,7 @@ SIM_ARGS  ?=
 
 include mk/verilator.mk
 
-.PHONY: help list cpu-test cpu-test-all
+.PHONY: help list cpu-test cpu-test-all coremark
 
 .DEFAULT_GOAL := help
 
@@ -25,6 +25,7 @@ help:
 	@echo "  make clean                 Remove build/"
 	@echo ""
 	@echo "  make cpu-test              Run CPU Verilator tests (cpu_tb + system_tb)"
+	@echo "  make coremark              Run CoreMark on the FPGA and print the score"
 	@echo "  make cpu-test-all          Same as cpu-test"
 	@echo ""
 	@echo "Modules: $(MODULES)"
@@ -34,3 +35,6 @@ list:
 
 cpu-test cpu-test-all:
 	$(MAKE) -C cpu test
+
+coremark:
+	$(MAKE) -C cpu/firmware coremark

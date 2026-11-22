@@ -13,6 +13,9 @@ if {[current_project -quiet] eq ""} {
     open_project $proj_file
 }
 
+source [file join $script_dir set_rtl_build_id.tcl]
+set_rtl_build_id
+
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1
 set prog [get_property PROGRESS [get_runs synth_1]]

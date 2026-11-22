@@ -17,6 +17,8 @@ The current FPGA target is Digilent Nexys Video (`XC7A200T`). SoC/peripheral wor
 - `scripts/` - Vivado Tcl scripts. The generated FPGA project lives at `FPGA/vivado/cpu`.
 - `docs/` - Working notes: `validation_work.md`, `rtl_work.md`, `isa_notes.md`.
 
+CoreMark measurements by RTL revision are in the [score history](coremark.md).
+
 ## Tools And Validation
 
 Verilator is the default simulator for day-to-day validation. The test firmware flow uses `riscv64-unknown-elf-` tools; Spike is optional for ISA reference checks. Vivado is used for FPGA project generation, xsim, and synthesis.

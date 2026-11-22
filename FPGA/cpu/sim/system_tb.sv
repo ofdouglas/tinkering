@@ -53,10 +53,10 @@ module system_tb;
             dut.cpu.fetch_regs.current_pc,
             dut.cpu.fetch_regs.fetch_pc,
             dut.cpu.fetch_regs.instruction);
-        $display("system_tb:   ifetch addr=0x%08x valid=%b response_match=%b data=0x%08x",
+        $display("system_tb:   ifetch addr=0x%08x valid=%b fetch_hit=%b data=0x%08x",
             {dut.cpu.fetch_addr, 2'b00},
             dut.cpu.fetch_valid,
-            dut.rom_fetch_response_matches,
+            dut.fetch_hit,
             dut.cpu.instruction_fetch);
         $display("system_tb:   decode valid=%b pc=0x%08x rs1=x%0d rs2=x%0d mem=%b wr=%b",
             dut.cpu.decode_regs.valid,
