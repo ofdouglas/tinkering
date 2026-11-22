@@ -24,6 +24,7 @@ module cpu_tb;
 
     logic [31:0] instruction_fetch;
     logic [31:2] fetch_addr;
+    logic [31:2] cpu_next_fetch_addr;
     logic fetch_valid;
     logic valid;
     logic [3:0] wr_strobe;
@@ -174,6 +175,7 @@ module cpu_tb;
         .rst_n       (rst_n),
         .instruction_fetch (instruction_fetch),
         .fetch_addr (fetch_addr),
+        .next_fetch_addr (cpu_next_fetch_addr),
         .fetch_valid (fetch_valid),
         .fetch_fault (fetch_fault),
         .load_fault (load_fault),

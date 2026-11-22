@@ -8,6 +8,7 @@ module rv32cpu #(
 
     input  logic [31 : 0]       instruction_fetch,
     output logic [31 : 2]       fetch_addr,
+    output logic [31 : 2]       next_fetch_addr,
     input  logic                fetch_valid,
 
     // Exception signals
@@ -110,6 +111,8 @@ always_comb begin
     end else begin
         next_pc = pc_plus4;
     end
+
+    next_fetch_addr = next_pc[31:2];
 end
 
 always_ff @(posedge clk) begin

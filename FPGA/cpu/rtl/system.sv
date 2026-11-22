@@ -180,7 +180,6 @@ logic        is_empty;
 
 // Combinatorial
 logic [31:2] pc_to_fetch;
-logic [31:2] pc_next;
 logic        fetch_hit;
 logic        is_rom_fetch;
 logic        is_sram_fetch;
@@ -189,6 +188,7 @@ logic        is_sram_fetch;
 
 // CPU Interface (combinatorial)
 logic [31:2] cpu_fetch_addr;
+logic [31:2] cpu_next_fetch_addr;
 logic [31:0] instruction_fetch;
 logic        fetch_valid;
 logic        fetch_fault;
@@ -196,8 +196,7 @@ logic        fetch_fault;
 always_comb begin
     // TODO: only need to compare MEMORY_ADDR_MSB:2 bits of the address, plus fetch_type
     fetch_hit     = (cpu_fetch_addr == pending_fetch_addr) && !is_empty;
-    pc_next       = cpu_fetch_addr + 1'b1; // Word addressed
-    pc_to_fetch   = fetch_hit ? pc_next : cpu_fetch_addr;
+    pc_to_fetch   = fetch_hit ? cpu_next_fetch_addr : cpu_fetch_addr;
     is_rom_fetch  = (pc_to_fetch[31:28] == REGION_BOOT_ROM);
     is_sram_fetch = (pc_to_fetch[31:28] == REGION_SHARED_RAM);
 
@@ -239,7 +238,7 @@ always_ff @(posedge clk) begin
         is_empty            <= '0;
         pending_fetch_addr  <= pc_to_fetch;
 
-        // NOTE: this assumes pc_next will be in the same region as the current fetch address
+        // NOTE: this assumes pc_to_fetch will be in the same region as the current fetch address
         // (ok for PC++; revisit when branch prediction can jump to a different region)
         if (is_rom_fetch) begin
             pending_fetch_type <= FETCH_ROM;
@@ -298,6 +297,7 @@ rv32cpu cpu(
     .rst_n             (system_rst_n),
     .instruction_fetch (instruction_fetch),
     .fetch_addr        (cpu_fetch_addr),
+    .next_fetch_addr   (cpu_next_fetch_addr),
     .fetch_valid       (fetch_valid),
     .fetch_fault       (fetch_fault),
     .load_fault        (memory_access_error && !is_write),
