@@ -387,26 +387,55 @@ always_comb begin
             alu_ctrl.shift_sign_ctrl = funct_7[5] ? SHIFTER_CTRL_SRA : SHIFTER_CTRL_SRL;
             wb_ctrl.writeback_en = 1'b1;
 
-            case (alu_register_e'(funct_3))
-                ALU_ADD:  alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
-                ALU_SLL:  alu_ctrl.alu_mux_ctrl = ALU_MUX_SHIFT;
-                ALU_SLT:  alu_ctrl.alu_mux_ctrl = ALU_MUX_COMPARE;
-                ALU_SLTU: alu_ctrl.alu_mux_ctrl = ALU_MUX_COMPARE;
-                ALU_XOR:  begin
-                    alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;   
-                    alu_ctrl.logic_ctrl = LOGIC_XOR;
-                end
-                ALU_SRL:  alu_ctrl.alu_mux_ctrl = ALU_MUX_SHIFT;
-                ALU_OR:   begin
-                    alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;   
-                    alu_ctrl.logic_ctrl = LOGIC_OR;
-                end
-                ALU_AND:  begin
-                    alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;   
-                    alu_ctrl.logic_ctrl = LOGIC_AND;
-                end
-                default:  alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
-            endcase
+            if (funct_7 == MUL_TYPE_FUNCT7) begin
+                alu_ctrl.alu_mux_ctrl = ALU_MUX_MUL;
+                case (mul_type_e'(funct_3))
+                    MUL_LOW: begin
+                        alu_ctrl.mul_ctrl.upper_result = '0;
+                        alu_ctrl.mul_ctrl.rs1_signed   = '0;
+                        alu_ctrl.mul_ctrl.rs2_signed   = '0;
+                    end
+                    MUL_HIGH_SIGNED: begin
+                        alu_ctrl.mul_ctrl.upper_result = '1;
+                        alu_ctrl.mul_ctrl.rs1_signed   = '1;
+                        alu_ctrl.mul_ctrl.rs2_signed   = '1;
+                    end
+                    MUL_HIGH_SIGNED_UNSIGNED: begin
+                        alu_ctrl.mul_ctrl.upper_result = '1;
+                        alu_ctrl.mul_ctrl.rs1_signed   = '1;
+                        alu_ctrl.mul_ctrl.rs2_signed   = '0;
+                    end
+                    MUL_HIGH_UNSIGNED: begin
+                        alu_ctrl.mul_ctrl.upper_result = '1;
+                        alu_ctrl.mul_ctrl.rs1_signed   = '0;
+                        alu_ctrl.mul_ctrl.rs2_signed   = '0;
+                    end
+                    default: begin
+                        if_id_traps.illegal_instruction = 1'b1;
+                    end
+                endcase
+            end else begin
+                case (alu_register_e'(funct_3))
+                    ALU_ADD:  alu_ctrl.alu_mux_ctrl = ALU_MUX_ADDER;
+                    ALU_SLL:  alu_ctrl.alu_mux_ctrl = ALU_MUX_SHIFT;
+                    ALU_SLT:  alu_ctrl.alu_mux_ctrl = ALU_MUX_COMPARE;
+                    ALU_SLTU: alu_ctrl.alu_mux_ctrl = ALU_MUX_COMPARE;
+                    ALU_XOR:  begin
+                        alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;
+                        alu_ctrl.logic_ctrl = LOGIC_XOR;
+                    end
+                    ALU_SRL:  alu_ctrl.alu_mux_ctrl = ALU_MUX_SHIFT;
+                    ALU_OR:   begin
+                        alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;
+                        alu_ctrl.logic_ctrl = LOGIC_OR;
+                    end
+                    ALU_AND:  begin
+                        alu_ctrl.alu_mux_ctrl = ALU_MUX_LOGIC;
+                        alu_ctrl.logic_ctrl = LOGIC_AND;
+                    end
+                    default:  alu_ctrl.alu_mux_ctrl = ALU_MUX_DEFAULT;
+                endcase
+            end
         end
         OPCODE_FENCE: begin
             alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
@@ -549,6 +578,8 @@ end
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 3: Execute
 ///////////////////////////////////////////////////////////////////////////////
+logic [63:0] multiplier_full_result;
+logic [31:0] mul_result;
 logic [31:0] alu_left, alu_right, rs2_store_value;
 logic [31:0] logic_result, shifter_result, adder_sum, alu_result;
 logic negative_flag;
@@ -610,6 +641,16 @@ always_comb begin
     end else begin
         rs2_store_value = decode_regs.rs2_reg;
     end
+end
+
+// Multiplier
+always_comb begin
+    logic [32:0] multiplier_left, multiplier_right;
+    multiplier_left  = {decode_regs.alu_ctrl.mul_ctrl.rs1_signed ? alu_left[31] : 1'b0, alu_left};
+    multiplier_right = {decode_regs.alu_ctrl.mul_ctrl.rs2_signed ? alu_right[31] : 1'b0, alu_right};
+
+    multiplier_full_result = $signed(multiplier_left) * $signed(multiplier_right);
+    mul_result = decode_regs.alu_ctrl.mul_ctrl.upper_result ? multiplier_full_result[63:32] : multiplier_full_result[31:0];
 end
 
 // Shifter and Logic units
@@ -702,11 +743,12 @@ end
 // ALU Result
 always_comb begin
     case (alu_mux_e'(decode_regs.alu_ctrl.alu_mux_ctrl))
-        ALU_MUX_LOGIC:   alu_result = logic_result;
-        ALU_MUX_ADDER:   alu_result = adder_sum;
-        ALU_MUX_SHIFT:   alu_result = shifter_result;
-        ALU_MUX_COMPARE: alu_result = {31'b0, compare_result};
-        default:         alu_result = {31'b0, compare_result};
+        ALU_MUX_LOGIC:    alu_result = logic_result;
+        ALU_MUX_ADDER:    alu_result = adder_sum;
+        ALU_MUX_SHIFT:    alu_result = shifter_result;
+        ALU_MUX_COMPARE:  alu_result = {31'b0, compare_result};
+        ALU_MUX_MUL:      alu_result = mul_result;
+        default:          alu_result = {31'b0, compare_result};
     endcase
 end
 

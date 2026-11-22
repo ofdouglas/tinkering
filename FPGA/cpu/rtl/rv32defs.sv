@@ -69,6 +69,13 @@ typedef enum logic [2:0] { // funct_3[1:0]
     LOGIC_CLEAR = 3'b111   // ~left & right
 } alu_logic_e;
 
+typedef enum logic [2:0] { // funct_3[2:0]
+    MUL_LOW                  = 3'b000,
+    MUL_HIGH_SIGNED          = 3'b001,
+    MUL_HIGH_SIGNED_UNSIGNED = 3'b010,
+    MUL_HIGH_UNSIGNED        = 3'b011
+} mul_type_e;
+
 typedef enum logic [0:0] { // funct_3[2]
     SHIFT_LEFT   = 1'b0,
     SHIFT_RIGHT  = 1'b1
@@ -112,11 +119,12 @@ typedef enum logic [0:0] { // funct_7[5]
    SHIFTER_CTRL_SRA  = 1'b1
 } shift_sign_e;
 
-typedef enum logic [1:0] {
-    ALU_MUX_LOGIC   = 2'b00,
-    ALU_MUX_ADDER   = 2'b01,
-    ALU_MUX_SHIFT   = 2'b10,
-    ALU_MUX_COMPARE = 2'b11
+typedef enum logic [2:0] {
+    ALU_MUX_LOGIC   = 3'b000,
+    ALU_MUX_ADDER   = 3'b001,
+    ALU_MUX_SHIFT   = 3'b010,
+    ALU_MUX_COMPARE = 3'b011,
+    ALU_MUX_MUL     = 3'b100
 } alu_mux_e;
 localparam alu_mux_e ALU_MUX_DEFAULT = ALU_MUX_LOGIC;
 
@@ -139,6 +147,14 @@ typedef enum logic [0:0] { // funct_3[2]
     LOAD_SIGNED   = 1'b0,
     LOAD_UNSIGNED = 1'b1
 } load_signed_e;
+
+localparam logic [6:0] MUL_TYPE_FUNCT7 = 7'b0000001;
+
+typedef struct packed {
+    logic           upper_result;
+    logic           rs1_signed;
+    logic           rs2_signed;
+} mult_ctrl_t;
 
 ///////////////////////////////////////////////////////////////////////////////
 // mcause codes (RISC-V privileged ISA, bits 4:0; bit 31 = interrupt)
@@ -315,6 +331,7 @@ typedef struct packed {
     shift_sign_e    shift_sign_ctrl;
     alu_logic_e     logic_ctrl;
     logic           is_unsigned;
+    mult_ctrl_t     mul_ctrl;
 } AluControls;
 
 typedef struct packed {

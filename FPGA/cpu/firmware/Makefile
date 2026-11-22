@@ -3,7 +3,7 @@ FIRMWARE_DIR = ../../../Firmware
 CPU_DIR = ..
 FPGA_DIR = $(CPU_DIR)/..
 include $(CPU_DIR)/riscv_toolchain.mk
-ARCH   = -march=rv32i_zicsr -mabi=ilp32
+ARCH   = -march=rv32i_zicsr_zmmul -mabi=ilp32
 INC_DIRS = . $(sort $(patsubst %/,%,$(dir $(wildcard */*.h)))) $(FIRMWARE_DIR)/time
 CFLAGS = $(ARCH) -g -O3 -ffreestanding -nostdlib $(addprefix -I,$(INC_DIRS))
 CPP_DISABLE_FLAGS = -fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables

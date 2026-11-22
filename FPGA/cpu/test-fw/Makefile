@@ -11,8 +11,8 @@ EXPECTED_DIR := expected
 
 include $(CPU_DIR)/riscv_toolchain.mk
 # Base RV32I + CSRs only: no M/A/F/D/C/B extensions. Matches rv32cpu RTL.
-ARCH    := -march=rv32i_zicsr -mabi=ilp32 -misa-spec=2.2
-ASFLAGS := $(ARCH) -Wa,-march=rv32i
+ARCH    := -march=rv32i_zicsr_zmmul -mabi=ilp32 -misa-spec=2.2
+ASFLAGS := $(ARCH) -Wa,-march=rv32i_zicsr_zmmul
 CFLAGS  := $(ARCH) -Os -ffreestanding -nostdlib -I$(COMMON_DIR)
 LDFLAGS := $(ARCH) -T linker.ld -nostdlib -Wl,--build-id=none
 OBJDUMP := $(PREFIX)objdump -d -S -M no-aliases

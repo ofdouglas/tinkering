@@ -1,4 +1,4 @@
-ASM_TESTS := basic_alu pipelined_alu alu_boundary branch branch_equal load_store load_use jump_lui_auipc jal_link_use csr_basic csr_immediate csr_mixed csr_rd_use trap illegal
+ASM_TESTS := basic_alu pipelined_alu alu_boundary branch branch_equal load_store load_use jump_lui_auipc jal_link_use csr_basic csr_immediate csr_mixed csr_rd_use trap illegal multiply
 C_TESTS   := crc store_hazard startup
 TESTS     := $(ASM_TESTS) $(C_TESTS)
 
