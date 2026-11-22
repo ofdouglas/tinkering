@@ -8,61 +8,37 @@
 #define MIE_MTI (1 << 7)
 
 inline void global_irq_enable(void) {
-    asm volatile (
-        "csrs mstatus, 8"
-        :
-        :
-        : "memory"
-    );
+    asm volatile("csrs mstatus, 8" : : : "memory");
 }
 
 inline void global_irq_disable(void) {
-    asm volatile (
-        "csrc mstatus, 8"
-        :
-        :
-        : "memory"
-    );
+    asm volatile("csrc mstatus, 8" : : : "memory");
 }
 
 inline uint32_t csr_read_mstatus(void) {
     uint32_t mstatus;
-    asm volatile (
-        "csrr %0, mstatus"
-        : "=r" (mstatus)
-        :
-        : "memory"
-    );
+    asm volatile("csrr %0, mstatus" : "=r"(mstatus) : : "memory");
     return mstatus;
 }
 
 inline void csr_write_mstatus(uint32_t mstatus) {
-    asm volatile (
-        "csrw mstatus, %0"
-        :
-        : "r" (mstatus)
-        : "memory"
-    );
+    asm volatile("csrw mstatus, %0" : : "r"(mstatus) : "memory");
 }
 
 inline uint32_t csr_read_mie(void) {
     uint32_t mie;
-    asm volatile (
-        "csrr %0, mie"
-        : "=r" (mie)
-        :
-        : "memory"
-    );
+    asm volatile("csrr %0, mie" : "=r"(mie) : : "memory");
     return mie;
 }
 
 inline void csr_write_mie(uint32_t mie) {
-    asm volatile (
-        "csrw mie, %0"
-        :
-        : "r" (mie)
-        : "memory"
-    );
+    asm volatile("csrw mie, %0" : : "r"(mie) : "memory");
+}
+
+inline uint32_t csr_read_mimpid(void) {
+    uint32_t mimpid;
+    asm volatile("csrr %0, mimpid" : "=r"(mimpid) : : "memory");
+    return mimpid;
 }
 
 // void ecall(void) {

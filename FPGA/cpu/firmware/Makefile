@@ -74,8 +74,7 @@ SYSTEM_TB_SRCS = \
 	$(FPGA_DIR)/rtl/uart.sv \
 	$(CPU_DIR)/rtl/system.sv \
 	$(CPU_DIR)/sim/system_tb.sv \
-	$(CPU_DIR)/rtl/debug_uart_controller.sv \
-	$(CPU_DIR)/rtl/instruction_prefetch.sv \
+	$(CPU_DIR)/rtl/debug_uart_controller.sv
 
 WDOG_RESET_MAIN_O = $(BUILD_DIR)/bootloader/wdog_reset_main.o
 WDOG_RESET_WDOG_O = $(BUILD_DIR)/drivers/watchdog.o

@@ -5,6 +5,7 @@
 #include "drivers/time.h"
 #include "drivers/uart.h"
 #include "linker/mem_map.h"
+#include "system/intrinsics.h"
 
 #ifdef HOST_BUILD
 #include "bootloader/host/platform.h"
@@ -261,6 +262,19 @@ static void boot_app(void) {
 #endif
 }
 
+static void print_hex(uint32_t value) {
+    static const char digits[] = "0123456789abcdef";
+    for (int shift = 28; shift >= 0; shift -= 4) {
+        uart_send_byte_blocking(digits[(value >> shift) & 15]);
+    }
+}
+
+static void send_rtl_build_id(void) {
+    send_string_blocking("RTL_BUILD_ID: ");
+    print_hex(csr_read_mimpid());
+    uart_send_byte_blocking('\n');
+}
+
 /******************************************************************************
  * Bootloader main loop
  *****************************************************************************/
@@ -272,6 +286,8 @@ int main(void) {
     uart_host_init();
     setvbuf(stderr, NULL, _IONBF, 0);
 #endif
+
+    send_rtl_build_id();
 
     while (true) {
         const int rx_byte = uart_getchar_nonblocking();

@@ -333,24 +333,31 @@ module system_tb;
     task automatic wait_for_uart_line(input string expected);
         string line;
         logic [7:0] rx_byte;
-        line = "";
         forever begin
-            pop_uart_byte(rx_byte);
-            if (test_failed) begin
+            line = "";
+            forever begin
+                pop_uart_byte(rx_byte);
+                if (test_failed) begin
+                    return;
+                end
+                if (rx_byte == "\n") begin
+                    break;
+                end
+                line = {line, $sformatf("%c", rx_byte)};
+            end
+            $display("[%0t] UART line: \"%s\"", $time, line);
+            if ((line == "DL_ERROR") || (line == "CRC_ERROR")) begin
+                fail($sformatf("bootloader error while waiting for %s: %s", expected, line));
                 return;
             end
-            if (rx_byte == "\n") begin
-                break;
+            if (line == expected) begin
+                return;
             end
-            line = {line, $sformatf("%c", rx_byte)};
-        end
-        $display("[%0t] UART line: \"%s\"", $time, line);
-        if ((line == "DL_ERROR") || (line == "CRC_ERROR")) begin
-            fail($sformatf("bootloader error while waiting for %s: %s", expected, line));
-            return;
-        end
-        if (line != expected) begin
+            if ((line.len() >= 14) && (line.substr(0, 13) == "RTL_BUILD_ID: ")) begin
+                continue;
+            end
             fail($sformatf("UART line mismatch: got \"%s\" expected \"%s\"", line, expected));
+            return;
         end
     endtask
 

@@ -55,8 +55,8 @@ MemoryStageRegs      memory_regs;   // Pipeline Stage 4 result
 logic decode_stall; // AKA pipeline bubble
 
 // Discard IF and ID
-logic branch_redirect_taken;
-logic [31:0]  branch_pc;
+logic branch_redirect_taken, branch_redirect_predicted, branch_redirect_mispredicted;
+logic [31:0]  branch_pc, branch_pc_predicted;
 
 // Pause everything
 logic memory_stall;
@@ -66,13 +66,15 @@ logic exception_entry;  // includes external interrupts
 logic exception_return;
 
 // Pipeline stage flush signals
-logic flush_if_id_stages;
+logic flush_if_stage;
+logic flush_id_stage;
 logic flush_ex_stage;
 
 // TODO (later optimization): some instructions are safe to retire after an interrupt is started.
 // Ex: an ALU operation in EX doesn't need to be flushed when entering an interrupt.
-assign flush_if_id_stages = exception_entry || exception_return || branch_redirect_taken;
-assign flush_ex_stage     = exception_entry || exception_return;
+assign flush_if_stage = exception_entry || exception_return || branch_redirect_taken || branch_redirect_predicted || branch_redirect_mispredicted;
+assign flush_id_stage = exception_entry || exception_return || branch_redirect_taken || branch_redirect_mispredicted;
+assign flush_ex_stage = exception_entry || exception_return;
 
 
 // Interrupt Pending Signals
@@ -101,6 +103,10 @@ always_comb begin
         next_pc = machine_special_regs.mepc;
     end else if (branch_redirect_taken) begin
         next_pc = branch_pc;
+    end else if (branch_redirect_mispredicted) begin
+        next_pc = decode_regs.current_pc + 32'd4;
+    end else if (branch_redirect_predicted) begin
+        next_pc = branch_pc_predicted;
     end else begin
         next_pc = pc_plus4;
     end
@@ -118,7 +124,7 @@ always_ff @(posedge clk) begin
         fetch_regs.valid <= 1'b0;
         fetch_regs.access_fault <= fetch_fault; // TODO: this and valid at the same time?
 
-        if (flush_if_id_stages) begin
+        if (flush_if_stage) begin
             fetch_regs.current_pc <= next_pc;
             fetch_regs.fetch_pc <= next_pc;
             // Prevent a stale instruction from being decoded again before the
@@ -495,12 +501,26 @@ always_comb begin
     endcase
 end
 
+// Static branch predictor:
+// - Backwards always predicted as taken
+// - Forwards always predicted as not taken
+always_comb begin
+    logic [31:0] address_sum;
+    logic branch_valid, branch_backwards;
+    branch_backwards = instr[31]; // MSB of sign-extended immediate (branch displacement)
+    branch_valid     = fetch_regs.valid && jump_branch_ctrl.is_branch_instr;
+
+    branch_redirect_predicted = branch_valid && branch_backwards;
+    address_sum               = fetch_regs.fetch_pc + immediate_bits;
+    branch_pc_predicted       = {address_sum[31:2], 2'b00};
+end
+
 always_ff @(posedge clk) begin
     if (!rst_n) begin
         decode_regs <= '0;
     end else if (memory_stall) begin
         decode_regs <= decode_regs;
-    end else if (decode_stall || flush_if_id_stages) begin
+    end else if (decode_stall || flush_id_stage) begin
         decode_regs <= '0;
     end else begin
         // Data path
@@ -521,8 +541,10 @@ always_ff @(posedge clk) begin
         decode_regs.mem_ctrl               <= mem_ctrl;
         decode_regs.wb_ctrl                <= wb_ctrl;
         decode_regs.if_id_traps            <= if_id_traps;
+        decode_regs.branch_redirect_predicted <= branch_redirect_predicted;
     end
 end
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stage 3: Execute
@@ -671,6 +693,9 @@ always_comb begin
 
     branch_taken = decode_regs.jump_branch_ctrl.is_branch_instr && compare_result;
     branch_redirect_taken = decode_regs.valid && (branch_taken || decode_regs.jump_branch_ctrl.is_jump_instr);
+
+    // Only handles the case where the branch is predicted as taken but it was not taken.
+    branch_redirect_mispredicted = decode_regs.valid && !branch_taken && decode_regs.branch_redirect_predicted;
 end
 
 // ALU Result

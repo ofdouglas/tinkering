@@ -382,6 +382,7 @@ typedef struct packed {
     WritebackControls  wb_ctrl;
     logic              csr_instruction;
     If_Id_Traps        if_id_traps;
+    logic              branch_redirect_predicted;
 } DecodeStageRegs;
 
 typedef struct packed {

@@ -30,8 +30,9 @@ class DownloadState(Enum):
     WAIT_FOR_BOOTLOADER = 1
     IMAGE_TRANSFER = 2
     WAIT_FOR_STATUS = 3
-    SUCCESS = 4
-    ERROR = 5
+    WAIT_FOR_RTL_BUILD_ID = 4
+    SUCCESS = 5
+    ERROR = 6
 
 
 class LineSerial(Protocol):
@@ -125,12 +126,13 @@ def runDownloader(
         if not line_str:
             continue
 
-        print(line_str)
-
         if current_state in (
             DownloadState.WAIT_FOR_BOOTLOADER,
             DownloadState.IMAGE_TRANSFER,
         ):
+            if "RTL_BUILD_ID" in line_str:
+                print(line_str)
+
             if "BL_READY" in line_str:
                 now = time.monotonic()
                 if (last_boot_img_s == 0.0) or ((now - last_boot_img_s) >= BOOT_IMG_RESEND_S):
