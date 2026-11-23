@@ -120,7 +120,7 @@ always_ff @(posedge clk) begin
         fetch_regs <= '0;
         fetch_regs.current_pc <= RESET_PC;
         fetch_regs.fetch_pc <= RESET_PC;
-    end else if (memory_stall || decode_stall) begin
+    end else if (memory_stall || (decode_stall && !(exception_entry || exception_return))) begin
         fetch_regs <= fetch_regs;
     end else begin
         fetch_regs.unaligned_pc <= next_pc[1:0] != '0;
