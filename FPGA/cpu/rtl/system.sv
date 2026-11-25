@@ -6,7 +6,11 @@ module system(
     output logic uart_tx_out,
     input logic uart_rx_in,
     output logic debug_uart_tx,
-    input logic debug_uart_rx
+    input logic debug_uart_rx,
+    output logic spi_clk,
+    input logic spi_miso,
+    output logic spi_mosi,
+    output logic spi_cs_n
 );
 
 logic rst_n;
@@ -79,13 +83,17 @@ logic mei_irq;
 assign mei_irq = uart_irq_out;
 
 // Peripheral bus
-bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) periph_bus();
-system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+2)) peripherals (
+bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+3)) periph_bus();
+system_peripherals #(.ADDR_MSB(PERIPH_ADDR_MSB+3)) peripherals (
     .bus(periph_bus.slave),
     .sys_gpio_led_enables(gpio_led_enables),
     .uart_irq_out(uart_irq_out),
     .uart_tx_out(uart_tx_out),
     .uart_rx_in(uart_rx_in),
+    .spi_clk(spi_clk),
+    .spi_cs_n(spi_cs_n),
+    .spi_mosi(spi_mosi),
+    .spi_miso(spi_miso),
     .mti_irq(mti_irq),
     .mtime(mtime),
     .reset_request(watchdog_reset_request)
@@ -275,7 +283,7 @@ assign periph_bus.rst_n = system_rst_n;
 assign periph_bus.valid = region_periph && cpu_request;
 assign periph_bus.wr_strobe = byte_enables;
 assign periph_bus.wr_data = data_write_bus;
-assign periph_bus.addr = address_bus[PERIPH_ADDR_MSB+2:2];
+assign periph_bus.addr = address_bus[PERIPH_ADDR_MSB+3:2];
 
 assign memory_access_error = cpu_request && (periph_trap || (region_rom && is_write) ||
                                             !(region_rom || region_ram || region_periph));

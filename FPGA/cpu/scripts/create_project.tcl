@@ -12,7 +12,7 @@ set cpu_root   [file normalize [file join $script_dir ..]]
 set fpga_root  [file normalize [file join $cpu_root ..]]
 set vivado_dir [file join $fpga_root vivado cpu]
 set rtl_dir    [file join $cpu_root rtl]
-set rtl_shared [file join $fpga_root rtl uart.sv]
+set rtl_shared [file join $fpga_root rtl]
 
 set proj_name cpu
 set part      xc7a200tsbg484-1
@@ -65,10 +65,15 @@ set rtl_files [list \
     [file join $rtl_dir block_sram.sv] \
     [file join $rtl_dir gpio.sv] \
     [file join $rtl_dir uart_periph.sv] \
+    [file join $rtl_dir spi_periph.sv] \
     [file join $rtl_dir rv32_machine_timers.sv] \
+    [file join $rtl_dir watchdog.sv] \
+    [file join $rtl_dir debug_uart_controller.sv] \
     [file join $rtl_dir system_peripherals.sv] \
     [file join $rtl_dir system.sv] \
-    $rtl_shared \
+    [file join $rtl_shared queue.sv] \
+    [file join $rtl_shared uart.sv] \
+    [file join $rtl_shared spi_master.sv] \
 ]
 add_files -norecurse $rtl_files
 

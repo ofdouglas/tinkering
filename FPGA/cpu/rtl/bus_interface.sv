@@ -29,6 +29,7 @@ interface bus_slave_interface #(
     );
 endinterface
 
+
 // Second port, with read-only access
 interface bus_slave_read_port #(
     parameter int ADDR_MSB = 23

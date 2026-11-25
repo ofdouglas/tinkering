@@ -1,7 +1,7 @@
 import cpu_config_pkg::*;
 
 module system_peripherals #(
-    parameter int ADDR_MSB = PERIPH_ADDR_MSB + 2
+    parameter int ADDR_MSB = PERIPH_ADDR_MSB + 3
 ) (
     bus_slave_interface.slave bus,
     
@@ -13,6 +13,12 @@ module system_peripherals #(
     output logic        uart_tx_out,
     input  logic        uart_rx_in,
 
+    // SPI
+    output logic        spi_clk,
+    output logic        spi_cs_n,
+    output logic        spi_mosi,
+    input  logic        spi_miso,
+
     // RISC-V Machine Timer (Timer/Counter)
     output logic        mti_irq,
     output logic [63:0] mtime,
@@ -21,10 +27,11 @@ module system_peripherals #(
     output logic        reset_request
 );
 
-localparam logic [1:0] PERIPH_GPIO = 2'd0;
-localparam logic [1:0] PERIPH_UART = 2'd1;
-localparam logic [1:0] PERIPH_RV32_MACHINE_TIMERS = 2'd2;
-localparam logic [1:0] PERIPH_WATCHDOG = 2'd3;
+localparam logic [2:0] PERIPH_GPIO = 3'd0;
+localparam logic [2:0] PERIPH_UART = 3'd1;
+localparam logic [2:0] PERIPH_RV32_MACHINE_TIMERS = 3'd2;
+localparam logic [2:0] PERIPH_WATCHDOG = 3'd3;
+localparam logic [2:0] PERIPH_SPI = 3'd4;
 
 // RISC-V Machine Timer
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) rv32_machine_timer_bus();
@@ -57,6 +64,16 @@ watchdog_peripheral watchdog0 (
     .reset_request(reset_request)
 );
 
+// SPI
+bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB)) spi_bus();
+spi_periph spi0 (
+    .bus(spi_bus.slave),
+    .sck(spi_clk),
+    .cs_n(spi_cs_n),
+    .mosi(spi_mosi),
+    .miso(spi_miso)
+);
+
 assign rv32_machine_timer_bus.clk = bus.clk;
 assign rv32_machine_timer_bus.rst_n = bus.rst_n;
 assign gpio_bus.clk = bus.clk;
@@ -65,8 +82,10 @@ assign uart_bus.clk = bus.clk;
 assign uart_bus.rst_n = bus.rst_n;
 assign watchdog_bus.clk = bus.clk;
 assign watchdog_bus.rst_n = bus.rst_n;
+assign spi_bus.clk = bus.clk;
+assign spi_bus.rst_n = bus.rst_n;
 
-logic [1:0] peripheral_select;
+logic [2:0] peripheral_select;
 logic [PERIPH_ADDR_MSB:2] periph_reg_offset;
 
 assign peripheral_select = bus.addr[ADDR_MSB:PERIPH_ADDR_MSB+1];
@@ -92,6 +111,12 @@ assign watchdog_bus.addr      = periph_reg_offset;
 assign watchdog_bus.valid     = (peripheral_select == PERIPH_WATCHDOG) ? bus.valid     : 1'b0;
 assign watchdog_bus.wr_strobe = (peripheral_select == PERIPH_WATCHDOG) ? bus.wr_strobe : 4'b0000;
 assign watchdog_bus.wr_data   = (peripheral_select == PERIPH_WATCHDOG) ? bus.wr_data   : '0;
+
+assign spi_bus.addr      = periph_reg_offset;
+assign spi_bus.valid     = (peripheral_select == PERIPH_SPI) ? bus.valid     : 1'b0;
+assign spi_bus.wr_strobe = (peripheral_select == PERIPH_SPI) ? bus.wr_strobe : 4'b0000;
+assign spi_bus.wr_data   = (peripheral_select == PERIPH_SPI) ? bus.wr_data   : '0;
+
 
 // Peripheral bus mux
 always_comb begin
@@ -124,6 +149,12 @@ always_comb begin
             bus.rd_data  = watchdog_bus.rd_data;
             bus.rd_valid = watchdog_bus.rd_valid;
             bus.error    = watchdog_bus.error;
+        end
+        PERIPH_SPI: begin
+            bus.wr_ack   = spi_bus.wr_ack;
+            bus.rd_data  = spi_bus.rd_data;
+            bus.rd_valid = spi_bus.rd_valid;
+            bus.error    = spi_bus.error;
         end
         default: begin
             bus.error    = bus.valid;

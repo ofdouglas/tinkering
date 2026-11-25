@@ -1,103 +1,153 @@
 #include <stdint.h>
+#include <stddef.h>
 
 #include "system/intrinsics.h"
 #include "drivers/time.h"
 #include "drivers/uart.h"
+#include "drivers/spi.h"
+#include "drivers/mcp2515.h"
 #include "drivers/gpio.h"
 #include "system/debug.h"
+#include "util/sw_timer.h"
+#include "util/string_utils.h"
 
-void hello_message(void) {
-    static constexpr char kHelloMsg[] = "Hello from FPGA SRAM!\n";
-    uart_send_string_blocking(kHelloMsg, sizeof(kHelloMsg) - 1);
+sw_timer_t timer_5s = {0, NS_PER_SEC * 5ULL};
+sw_timer_t timer_500ms = {0, NS_PER_MILLISEC * 500ULL};
+sw_timer_t timer_100ms = {0, NS_PER_MILLISEC * 100ULL};
+
+uint32_t num_can_send_errors = 0;
+uint32_t num_can_frames_received = 0;
+uint32_t num_uart_bytes_received = 0;
+
+void stats_report(void) {
+    log_value("UART bytes received: ", num_uart_bytes_received);
+    log_value("CAN frames received: ", num_can_frames_received);
+    log_value("CAN send errors: ", num_can_send_errors);
 }
 
-void toggle_led1_1hz(void) {
-    // 1 Hz * 50% duty cycle = 500 ms toggle period
-    constexpr uint64_t kTogglePeriodNs = NS_PER_MILLISEC * 500U;
-    static uint64_t next_toggle_time_ns = 0;
-    static bool led_on = true;
+void toggle_led3(void) {
+    static bool led3_on = true;
+    gpio_set_led(3U, led3_on);
+    led3_on = !led3_on;
+}
 
-    uint64_t current_time_ns = mtim_read_nanosec();
-    if (current_time_ns >= next_toggle_time_ns) {
-        next_toggle_time_ns = current_time_ns + kTogglePeriodNs;
+void task_100ms(void) {
+    const uint32_t kUptimeCanId = 0x1A0;
+    can_frame_t frame;
+    uint64_t now_ns = mtim_read_nanosec();
 
-        gpio_set_led(1, led_on);
-        led_on = !led_on;
+    frame.can_id = kUptimeCanId;
+    frame.is_extended_id = false;
+    frame.dlc = 8U;
+    my_memcpy(frame.data, (uint8_t*)&now_ns, 8U);
+
+    if (!mcp2515_send(&frame)) {
+        num_can_send_errors++;
     }
 }
 
-class ScopedLedToggle {
-public:
-    ScopedLedToggle(int led_num) : led_num_(led_num) {
-        gpio_set_led(led_num_, true);
-    }
-    ~ScopedLedToggle(void) {
-        gpio_set_led(led_num_, false);
+void task_500ms(void) {
+    static bool led0_on = true;
+    gpio_set_led(0U, led0_on);
+    led0_on = !led0_on;
+}
+
+void task_5s(void) {
+    const uint64_t now_ns = mtim_read_nanosec();
+    const uint32_t uptime_s = now_ns / NS_PER_SEC;
+
+    log_value("Uptime (s): ", uptime_s);
+}
+
+// typedef int (*)(size_t argc, char** argv) command_func_t;
+typedef void (*command_func_t)(void);
+
+typedef struct {
+    const char* name;
+    command_func_t func;
+} command_t;
+
+command_t stats_cmd = {"stats", stats_report};
+command_t led_cmd = {"led", toggle_led3};
+
+const size_t kNumCommands = 2U;
+command_t* command_table[kNumCommands] = {&stats_cmd, &led_cmd};
+
+void run_command_shell(void) {
+    const size_t kBufferSize = 32U;
+    static size_t buffer_index = 0U;
+    static char buffer[kBufferSize] = {};
+    bool ran_command = false;
+
+    uint8_t data = 0;
+    while ((buffer_index < kBufferSize) && uart_receive_byte(&data)) {
+        num_uart_bytes_received++;
+        buffer[buffer_index++] = data;
+
+        if ((data == '\n') || (data == '\r')) {
+            for (size_t i = 0; i < kNumCommands; i++) {
+                if (my_strncmp(buffer, command_table[i]->name, (buffer_index - 1))) {
+                    log_string("Running command: ", command_table[i]->name);
+                    command_table[i]->func();
+                    ran_command = true;
+                    break;
+                }
+            }
+            if (!ran_command) {
+                send_string_nonblocking("ERROR: command not recognized\n");
+            }
+            buffer_index = 0;
+            my_memfill((uint8_t*)buffer, kBufferSize, '\0');
+        }
     }
 
-private:
-    int led_num_;
-};
+    if (buffer_index >= kBufferSize) {
+        send_string_nonblocking("ERROR: buffer filled\n");
+        buffer_index = 0;
+        my_memfill((uint8_t*)buffer, kBufferSize, '\0');
+    }
+}
 
-class Foo {
-public:
-    Foo(int x, int offset) : x_(x) {
-        // const volatile uint32_t *data = (const volatile uint32_t *)0x10000000;
-        // y_ = data[offset];
-        volatile int scramble = 0x12345678;
-        y_ = offset ^ scramble;
+void run_can_rx(void) {
+    can_frame_t frame;
+    while (mcp2515_receive(&frame)) {
+        log_value("Received CAN frame: ", frame.can_id);
+        num_can_frames_received++;
     }
-    int getX(void) const {
-        return x_;
-    }
-    void setX(int x) {
-        x_ = x;
-    }
-
-    int getY(void) const {
-        return y_;
-    }
-    void setY(int y) {
-        y_ = y;
-    }
-
-private:
-    int x_;
-    int y_;
-};
-
-Foo foo_obj(10, 0);
+}
 
 int main(void) {
+    mtim_delay_ns(NS_PER_SEC * 2ULL);
+
     uart_init();
+    spi_init();
+    if (!mcp2515_init_500kbps_8mhz()) {
+        num_can_send_errors++;
+        send_string_nonblocking("ERROR: MCP2515 initialization failed\n");
+    }
 
     csr_write_mie(MIE_MEI | MIE_MTI);
     global_irq_enable();
 
-    // Foo foo_obj(10, 0);
-    volatile int x = foo_obj.getX();
-    foo_obj.setX(x + 1);
-    volatile int y = foo_obj.getY();
-    foo_obj.setY(y + 1);
-
-    {
-        ScopedLedToggle led0(0);
-        mtim_delay_ns_irq(NS_PER_MICROSEC * 100U);
-    }
-
-    hello_message();
-
-    // Toggle LED1 at 1 Hz forever
     while (1) {
-        // checkpoint(5) inside toggle_led1_1hz()
-        toggle_led1_1hz();
+        run_command_shell();
 
-        // Echo up to 1 UART byte
-        uint8_t data = 0;
-        if (uart_receive_byte(&data)) {
-            if (uart_send_byte_nonblocking(data)) {
-            }
+        run_can_rx();
+
+        if (!sw_timer_check_elapsed(&timer_100ms)) {
+            continue;
         }
+        task_100ms();
+
+        if (!sw_timer_check_elapsed(&timer_500ms)) {
+            continue;
+        }
+        task_500ms();
+
+        if (!sw_timer_check_elapsed(&timer_5s)) {
+            continue;
+        }
+        task_5s();
     }
 
     while (1) {

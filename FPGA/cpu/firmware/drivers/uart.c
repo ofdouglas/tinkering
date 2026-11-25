@@ -46,8 +46,8 @@ void uart_send_string_blocking(const char* str, const uint32_t length) {
     }
 }
 
-#define UART_RX_BUFFER_SIZE 16
-#define UART_TX_BUFFER_SIZE 16
+#define UART_RX_BUFFER_SIZE 256
+#define UART_TX_BUFFER_SIZE 256
 volatile uint8_t uart_rx_buffer[UART_RX_BUFFER_SIZE];
 volatile uint8_t uart_tx_buffer[UART_TX_BUFFER_SIZE];
 ringbuf_t uart_rx_ringbuf;
@@ -135,6 +135,8 @@ inline bool uart_tx_isr(void) {
 }
 
 void mei_isr(void) {
+    // TODO: handle other ISRs besides UART!
+
     constexpr uint32_t kMaxLoopIterations = 8U;
 
     for (uint32_t i = 0; i < kMaxLoopIterations; i++) {

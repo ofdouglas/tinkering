@@ -17,6 +17,10 @@ module system_tb;
     logic uart_rx_in;
     logic debug_uart_tx;
     logic debug_uart_rx;
+    logic spi_clk;
+    logic spi_cs_n;
+    logic spi_mosi;
+    logic spi_miso;
     logic [7:0] uart_rx_queue [$];
     logic [7:0] uart_rx_pending [$];
     byte unsigned app_image [$];
@@ -34,14 +38,16 @@ module system_tb;
         .uart_tx_out (uart_tx_out),
         .uart_rx_in  (uart_rx_in),
         .debug_uart_tx(debug_uart_tx),
-        .debug_uart_rx(debug_uart_rx)
+        .debug_uart_rx(debug_uart_rx),
+        .spi_clk(spi_clk),
+        .spi_cs_n(spi_cs_n),
+        .spi_mosi(spi_mosi),
+        .spi_miso(spi_miso)
     );
 
     initial begin
         clk = 1'b0;
         forever #(CLK_PERIOD / 2) clk = ~clk;
-
-        debug_uart_tx = 1'b1;
     end
 
     task automatic dump_cpu_context;
@@ -567,6 +573,8 @@ module system_tb;
 
     initial begin
         uart_rx_in = 1'b1;
+        debug_uart_tx = 1'b1;
+        spi_miso = 1'b0;
         led0_seen = 1'b0;
         led0_done = 1'b0;
         protocol_done = 1'b0;

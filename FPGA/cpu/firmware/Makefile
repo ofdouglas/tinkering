@@ -41,7 +41,7 @@ SIM_APP_ELF = $(BUILD_DIR)/led_toggle.elf
 SIM_APP_BIN = $(BUILD_DIR)/led_toggle.bin
 SIM_APP_INSTALL = $(MEM_DIR)/led_toggle.bin
 
-SHARED_SRCS_C = drivers/gpio.c drivers/time.c drivers/uart.c system/debug.c util/ringbuf.c
+SHARED_SRCS_C = drivers/gpio.c drivers/mcp2515.c drivers/spi.c drivers/time.c drivers/uart.c system/debug.c util/ringbuf.c
 SHARED_SRCS_S = system/exception.S system/start.S
 SHARED_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(SHARED_SRCS_C)) \
               $(patsubst %.S,$(BUILD_DIR)/%.o,$(SHARED_SRCS_S))
@@ -68,13 +68,16 @@ SYSTEM_TB_SRCS = \
 	$(CPU_DIR)/rtl/system_peripherals.sv \
 	$(CPU_DIR)/rtl/gpio.sv \
 	$(CPU_DIR)/rtl/uart_periph.sv \
+	$(CPU_DIR)/rtl/spi_periph.sv \
 	$(CPU_DIR)/rtl/rv32_machine_timers.sv \
 	$(CPU_DIR)/rtl/watchdog.sv \
 	$(FPGA_DIR)/rtl/queue.sv \
 	$(FPGA_DIR)/rtl/uart.sv \
+	$(FPGA_DIR)/rtl/spi_master.sv \
 	$(CPU_DIR)/rtl/system.sv \
 	$(CPU_DIR)/sim/system_tb.sv \
 	$(CPU_DIR)/rtl/debug_uart_controller.sv
+
 
 WDOG_RESET_MAIN_O = $(BUILD_DIR)/bootloader/wdog_reset_main.o
 WDOG_RESET_WDOG_O = $(BUILD_DIR)/drivers/watchdog.o
