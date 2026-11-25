@@ -6,6 +6,7 @@
 #define MSTATUS_MIE (1 << 3)
 #define MIE_MEI (1 << 11)
 #define MIE_MTI (1 << 7)
+#define MIE_EXT_VECTOR (1 << 16)
 
 inline void global_irq_enable(void) {
     asm volatile("csrs mstatus, 8" : : : "memory");

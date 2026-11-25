@@ -21,5 +21,4 @@ void uart_init(void);
 
 bool uart_receive_byte(uint8_t* data);
 
-
 #endif

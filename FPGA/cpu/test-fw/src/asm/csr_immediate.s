@@ -28,10 +28,10 @@ _start:
     csrrci x8, mie, 8          /* verify x8  = 0x00000808 (old mie) */
     csrrsi x9, mie, 0          /* verify x9  = 0x00000800 (clear MSI -> read same CSR) */
 
-    /* Case 5: mtvec via CSRRWI (low bits land in base field) */
-    csrrwi x10, mtvec, 0       /* verify x10 = 0x00000000 */
-    csrrwi x11, mtvec, 16      /* verify x11 = 0x00000000 (old mtvec); mtvec = 0x10 */
-    csrrsi x12, mtvec, 0       /* verify x12 = 0x00000010 */
+    /* Case 5: mtvec via CSRRWI (base from uimm; mode forced vectored) */
+    csrrwi x10, mtvec, 0       /* verify x10 = 0x00000001 (vectored reset) */
+    csrrwi x11, mtvec, 16      /* verify x11 = 0x00000001 (old mtvec); mtvec = 0x11 */
+    csrrsi x12, mtvec, 0       /* verify x12 = 0x00000011 */
 
     /* Case 6: mip via CSRRWI / CSRRSI (sparse pending bits) */
     csrrwi x13, mip, 0         /* verify x13 = 0x00000000 */

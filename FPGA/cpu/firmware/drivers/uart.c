@@ -134,9 +134,7 @@ inline bool uart_tx_isr(void) {
     return false;
 }
 
-void mei_isr(void) {
-    // TODO: handle other ISRs besides UART!
-
+void __attribute__((interrupt("machine"))) uart0_isr(void) {
     constexpr uint32_t kMaxLoopIterations = 8U;
 
     for (uint32_t i = 0; i < kMaxLoopIterations; i++) {

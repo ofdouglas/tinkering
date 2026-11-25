@@ -177,7 +177,7 @@ typedef enum logic [4:0] {
     IRQ_SRC_LCOFI         = 5'd13,
     IRQ_SRC_RESERVED14    = 5'd14,
     IRQ_SRC_RESERVED15    = 5'd15,
-    IRQ_SRC_RESERVED16    = 5'd16,
+    IRQ_SRC_EXT_VECTOR    = 5'd16, // External vectored interrupt controller
     IRQ_SRC_RESERVED17    = 5'd17,
     IRQ_SRC_RESERVED18    = 5'd18,
     IRQ_SRC_RESERVED19    = 5'd19,
@@ -475,15 +475,17 @@ typedef struct packed {
 } mstatus_csr_t;
 
 typedef struct packed {
-    logic        msi_enable;  // IRQ source 3
-    logic        mti_enable;  // IRQ source 7
-    logic        mei_enable;  // IRQ source 11
+    logic        msi_enable;      // IRQ source 3
+    logic        mti_enable;      // IRQ source 7
+    logic        mei_enable;      // IRQ source 11
+    logic        ext_vec_enable;  // IRQ source 16
 } mie_csr_t;
 
 typedef struct packed {
-    logic        msi_pending;  // IRQ source 3
-    logic        mti_pending;  // IRQ source 7
-    logic        mei_pending;  // IRQ source 11
+    logic        msi_pending;       // IRQ source 3
+    logic        mti_pending;       // IRQ source 7
+    logic        mei_pending;       // IRQ source 11
+    logic        ext_vec_pending;   // IRQ source 16
 } mip_csr_t;
 
 typedef struct packed {
@@ -522,7 +524,9 @@ endfunction
 
 function automatic logic [31:0] read_mip(mip_csr_t mip);
     return {
-        20'd0,
+        15'd0,
+        mip.ext_vec_pending,
+        4'd0,
         mip.mei_pending,
         3'd0,
         mip.mti_pending,
@@ -534,6 +538,7 @@ endfunction
 
 function automatic mip_csr_t write_mip(logic [31:0] data);
     mip_csr_t mip;
+    mip.ext_vec_pending = data[16];
     mip.mei_pending = data[11];
     mip.mti_pending = data[7];
     mip.msi_pending = data[3];
@@ -542,7 +547,9 @@ endfunction
 
 function automatic logic [31:0] read_mie(mie_csr_t mie);
     return {
-        20'd0,
+        15'd0,
+        mie.ext_vec_enable,
+        4'd0,
         mie.mei_enable,
         3'd0,
         mie.mti_enable,
@@ -554,6 +561,7 @@ endfunction
 
 function automatic mie_csr_t write_mie(logic [31:0] data);
     mie_csr_t mie;
+    mie.ext_vec_enable = data[16];
     mie.mei_enable = data[11];
     mie.mti_enable = data[7];
     mie.msi_enable = data[3];

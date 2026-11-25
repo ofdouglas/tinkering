@@ -106,11 +106,10 @@ module system_tb;
             dut.cpu.machine_special_regs.mepc,
             dut.cpu.machine_special_regs.mcause,
             dut.cpu.machine_special_regs.mtval);
-        $display("system_tb:   csr    mstatus.mie=%b mpie=%b mie.mti=%b mie.mei=%b",
+        $display("system_tb:   csr    mstatus.mie=%b mpie=%b mie=%x",
             dut.cpu.machine_special_regs.mstatus.mie,
             dut.cpu.machine_special_regs.mstatus.mpie,
-            dut.cpu.machine_special_regs.mie.mti_enable,
-            dut.cpu.machine_special_regs.mie.mei_enable);
+            dut.cpu.machine_special_regs.mie);
         $display("system_tb:   csr   mtime = 0x%016x",  dut.mtime);
         $display("system_tb:   csr   mtime_compare = 0x%016x", dut.peripherals.rv32_machine_timer.comp_value);
         $display("system_tb:   --- integer registers ---");

@@ -77,10 +77,13 @@ block_sram #(.WORD_ADDR_BITS(SRAM_ADDR_MSB-1)) cpu_sram (
 logic [7:0] gpio_led_enables;
 logic [3:0] debug_leds;
 logic [63:0] mtime;
+logic [15:0] external_irqs;
 logic uart_irq_out;
 logic mti_irq;
 logic mei_irq;
-assign mei_irq = uart_irq_out;
+// TODO: implement mei_irq
+assign mei_irq = '0;
+assign external_irqs = {15'b0, uart_irq_out};
 
 // Peripheral bus
 bus_slave_interface #(.ADDR_MSB(PERIPH_ADDR_MSB+3)) periph_bus();
@@ -313,6 +316,7 @@ rv32cpu cpu(
     .store_unaligned   (unaligned_write_trap),
     .mti_irq           (mti_irq),
     .mei_irq           (mei_irq),
+    .external_irqs     (external_irqs),
     .valid             (cpu_request),
     .wr_strobe         (byte_enables),
     .wr_data           (data_write_bus),

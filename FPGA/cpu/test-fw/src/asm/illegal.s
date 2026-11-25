@@ -8,8 +8,8 @@ _start:
     1:
     auipc x10, %pcrel_hi(_exception_entry)
     addi  x10, x10, %pcrel_lo(1b)
-    csrrw x11, mtvec, x10            /* verify x11 = 0x00000000 (old mtvec) */
-    csrrs x12, mtvec, x0             /* verify x12 = handler address */
+    csrrw x11, mtvec, x10            /* verify x11 = 0x00000001 (vectored reset) */
+    csrrs x12, mtvec, x0             /* verify x12 = handler address | 1 */
 
     /* ================================================================
      * Illegal instruction traps (raw encodings; RV32I build only)

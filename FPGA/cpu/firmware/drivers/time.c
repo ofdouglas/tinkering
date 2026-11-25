@@ -1,9 +1,9 @@
 #include "drivers/time.h"
 #include "linker/mem_map.h"
 
-#define MTIM_TIME_LOW_REG  ((volatile uint32_t*)(MTIM_BASE + 0))
+#define MTIM_TIME_LOW_REG ((volatile uint32_t*)(MTIM_BASE + 0))
 #define MTIM_TIME_HIGH_REG ((volatile uint32_t*)(MTIM_BASE + 4))
-#define MTIM_COMP_LOW_REG  ((volatile uint32_t*)(MTIM_BASE + 8))
+#define MTIM_COMP_LOW_REG ((volatile uint32_t*)(MTIM_BASE + 8))
 #define MTIM_COMP_HIGH_REG ((volatile uint32_t*)(MTIM_BASE + 12))
 
 uint64_t ns_from_ticks(const uint64_t ticks) {
@@ -19,8 +19,8 @@ uint64_t mtim_read_ticks(void) {
     uint32_t high;
     uint32_t check;
 
-    high  = *MTIM_TIME_HIGH_REG;
-    low   = *MTIM_TIME_LOW_REG;
+    high = *MTIM_TIME_HIGH_REG;
+    low = *MTIM_TIME_LOW_REG;
     check = *MTIM_TIME_HIGH_REG;
     if (high != check) {
         low = *MTIM_TIME_LOW_REG;
@@ -34,18 +34,16 @@ uint64_t mtim_read_nanosec(void) {
     return ns_from_ticks(mtim_read_ticks());
 }
 
-
 uint64_t nanoseconds_since_boot(void) {
     return mtim_read_nanosec();
 }
 
 void mtim_write_compare(const uint64_t value) {
     // Write max value into upper 32 bits to prevent spurious IRQ during write
-    *MTIM_COMP_HIGH_REG  = 0xFFFFFFFFUL;
-    *MTIM_COMP_LOW_REG   = (uint32_t)(value & 0xFFFFFFFFUL);
-    *MTIM_COMP_HIGH_REG  = (uint32_t)(value >> 32U);
+    *MTIM_COMP_HIGH_REG = 0xFFFFFFFFUL;
+    *MTIM_COMP_LOW_REG = (uint32_t)(value & 0xFFFFFFFFUL);
+    *MTIM_COMP_HIGH_REG = (uint32_t)(value >> 32U);
 }
-
 
 volatile uint32_t _mtime_isr_counter;
 
@@ -53,7 +51,7 @@ volatile uint32_t _mtime_isr_counter;
 extern "C" {
 #endif
 
-void mtim_isr(void) {
+void __attribute__((interrupt("machine"))) mtim_isr(void) {
     // Increment the ISR counter
     _mtime_isr_counter++;
 
@@ -70,7 +68,7 @@ void mtim_delay_ns(const uint64_t ns) {
     const uint64_t start_ns = mtim_read_nanosec();
     const uint64_t end_ns = start_ns + ns;
     while (mtim_read_nanosec() < end_ns) {
-        __asm__ volatile ("" ::: "memory");
+        __asm__ volatile("" ::: "memory");
     }
 }
 
@@ -81,13 +79,13 @@ void mtim_delay_ns_irq(const uint64_t ns) {
     mtim_write_compare(ticks_from_ns(end_ns));
 
     while (_mtime_isr_counter == isr_counter) {
-        __asm__ volatile ("" ::: "memory");
+        __asm__ volatile("" ::: "memory");
     }
 }
 
 void delay_loop(const uint32_t count) {
     const uint32_t kDelayLoopCycles = count * 100UL * 1000UL;
     for (uint32_t i = 0U; i < kDelayLoopCycles; i++) {
-        __asm__ volatile ("" ::: "memory");
+        __asm__ volatile("" ::: "memory");
     }
 }

@@ -34,10 +34,10 @@ _start:
     csrrc x7, mie, x30         /* verify x7  = 0x00000808 (old mie) */
     csrrs x8, mie, x0          /* verify x8  = 0x00000008 (clear -> read same CSR) */
 
-    csrrs x9, mtvec, x0        /* verify x9  = 0x00000000 */
+    csrrs x9, mtvec, x0        /* verify x9  = 0x00000001 (vectored reset) */
     lui   x30, 0x10
-    csrrw x10, mtvec, x30      /* verify x10 = 0x00000000 (old mtvec) */
-    csrrs x11, mtvec, x0       /* verify x11 = 0x00010000 */
+    csrrw x10, mtvec, x30      /* verify x10 = 0x00000001 (old mtvec) */
+    csrrs x11, mtvec, x0       /* verify x11 = 0x00010001 */
 
     csrrs x12, mip, x0         /* verify x12 = 0x00000000 */
     load_all x30
@@ -119,9 +119,9 @@ _start:
 
     /* H7: mtvec write chain */
     lui   x30, 0x20
-    csrrw x18, mtvec, x30      /* verify x18 = 0x00010000 (old mtvec) */
-    csrrw x19, mtvec, x30      /* verify x19 = 0x00020000 (old mtvec after prior write) */
-    csrrs x20, mtvec, x0       /* verify x20 = 0x00020000 */
+    csrrw x18, mtvec, x30      /* verify x18 = 0x00010001 (old mtvec) */
+    csrrw x19, mtvec, x30      /* verify x19 = 0x00020001 (old mtvec after prior write) */
+    csrrs x20, mtvec, x0       /* verify x20 = 0x00020001 */
 
     /* Snapshot H7 before the Z-block reuses x18–x20. */
     lui   x30, %hi(_sram_start)
@@ -189,11 +189,11 @@ _start:
     csrrw x10, mtval, x30      /* verify x10 = 0x00000000 */
     csrrs x11, mtval, x0       /* verify x11 = 0x00001000 */
 
-    /* mtvec mode bits are forced to direct (00) */
+    /* mtvec mode bits are forced to vectored (01) */
     lui   x30, 0x30
     addi  x30, x30, 1          /* x30 = 0x00030001 */
-    csrrw x12, mtvec, x30      /* verify x12 = 0x00020000 (old mtvec from H7) */
-    csrrs x13, mtvec, x0       /* verify x13 = 0x00030000 */
+    csrrw x12, mtvec, x30      /* verify x12 = 0x00020001 (old mtvec from H7) */
+    csrrs x13, mtvec, x0       /* verify x13 = 0x00030001 */
 
     nop
     nop

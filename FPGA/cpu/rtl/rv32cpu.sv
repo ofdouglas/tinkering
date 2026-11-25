@@ -16,7 +16,8 @@ module rv32cpu #(
     input  logic                load_fault,
     input  logic                store_fault,
     input  logic                store_unaligned,  // TODO: unaligned for either load or store
-    input  logic                mei_irq, // MEI IRQ
+    input  logic [15 : 0]       external_irqs, // SoC External Interrupts
+    input  logic                mei_irq, // Machine External IRQ
     input  logic                mti_irq, // Machine Timer IRQ   
 
     // CPU -> Bus Request
@@ -65,6 +66,7 @@ logic memory_stall;
 // Resolved in MEM stage. Flushes IF/ID/EX.
 logic exception_entry;  // includes external interrupts
 logic exception_return;
+logic [31:2] exception_entry_pc;
 
 // Pipeline stage flush signals
 logic flush_if_stage;
@@ -79,13 +81,27 @@ assign flush_ex_stage = exception_entry || exception_return;
 
 
 // Interrupt Pending Signals
-logic mti_armed, mei_armed, external_interrupt;
+logic mti_armed, mei_armed, ext_irqs_armed, external_interrupt;
 assign mti_armed          = mti_irq && machine_special_regs.mie.mti_enable;
 assign mei_armed          = mei_irq && machine_special_regs.mie.mei_enable;
+assign ext_irqs_armed     = |external_irqs & machine_special_regs.mie.ext_vec_enable;
 // Take IRQs on a valid MEM-stage instruction, not a bubble (mepc would be 0)
 // and not while a memory op is stalled.
-assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed)
+assign external_interrupt = machine_special_regs.mstatus.mie && (mei_armed || mti_armed || ext_irqs_armed)
                             && execute_regs.valid && !memory_stall;
+
+// Ext Irq selecter (priority encoder)
+logic [4:0] ext_irq_selected;
+
+always_comb begin
+    ext_irq_selected = '0;
+    for (int i = 0; i < 16; i++) begin
+        if (external_irqs[i]) begin
+            ext_irq_selected = 5'(i);
+            break;
+        end
+    end
+end
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -99,7 +115,7 @@ always_comb begin
     pc_plus4 = fetch_regs.current_pc + 32'd4;
 
     if (exception_entry) begin
-        next_pc = {machine_special_regs.mtvec.base, 2'b00};
+        next_pc = {exception_entry_pc, 2'b00};
     end else if (exception_return) begin
         next_pc = machine_special_regs.mepc;
     end else if (branch_redirect_taken) begin
@@ -892,11 +908,14 @@ assign carried_traps = execute_regs.if_id_traps;
 
 // Determine trap type for mcause and trap value for mtval
 always_comb begin
-    exception_entry  = 1'b0;
-    exception_return = 1'b0; // TODO: handle trap simultaneous to mret
-    mcause_data      = machine_special_regs.mcause;
-    mtval_data       = machine_special_regs.mtval;
-    mepc_addr        = execute_regs.current_pc;
+    logic [4:0] vector_table_index;
+    exception_entry    = 1'b0;
+    exception_return   = 1'b0; // TODO: handle trap simultaneous to mret
+    mcause_data        = machine_special_regs.mcause;
+    mtval_data         = machine_special_regs.mtval;
+    mepc_addr          = execute_regs.current_pc;
+    exception_entry_pc = machine_special_regs.mtvec.base;
+    vector_table_index = '0;
     // TODO: mtval_data
 
     // Handle traps in program order (later pipeline stages first)
@@ -926,10 +945,24 @@ always_comb begin
         mcause_data = write_mcause(0, carried_traps.fetch_alignment_fault ? TRAP_INST_ADDR_MISALIGNED : TRAP_INST_ACCESS_FAULT);
 
     end else if (external_interrupt) begin
-        exception_entry  = 1'b1;
-        // TODO: handle others, verify MTI
-        mcause_data = write_mcause(1, mei_armed ? IRQ_SRC_MEI : IRQ_SRC_MTI);
+        if (mti_armed) begin
+            exception_entry  = 1'b1;
+            mcause_data = write_mcause(1, IRQ_SRC_MTI);
+            vector_table_index = 5'd7;
+
+        end else if (mei_armed) begin
+            exception_entry  = 1'b1;
+            mcause_data = write_mcause(1, IRQ_SRC_MEI);
+            vector_table_index = 5'd11;
+
+        end else if (ext_irqs_armed) begin
+            exception_entry  = 1'b1;
+            vector_table_index = 5'd16 + ext_irq_selected;
+            mcause_data = write_mcause(1, vector_table_index);
+        end
     end
+
+    exception_entry_pc = machine_special_regs.mtvec.base + {25'b0, vector_table_index};
 end
 
 // Special Registers
@@ -955,7 +988,7 @@ always_ff @(posedge clk) begin
         machine_special_regs.mepc    <= '0;
         machine_special_regs.mcause  <= '0;
         machine_special_regs.mtval   <= '0;
-        machine_special_regs.mtvec   <= {30'd0, MTVEC_MODE_DIRECT};
+        machine_special_regs.mtvec   <= {30'd0, MTVEC_MODE_VECTORED};
         privilege_mode               <= PRIVILEGE_MODE_MACHINE;
 
     end else if (memory_stall) begin
@@ -978,7 +1011,7 @@ always_ff @(posedge clk) begin
                 case (csr_machine_rw_offset_e'(csr_offset_bits))
                     CSR_ADDRESS_MIE:     machine_special_regs.mie     <= write_mie(csr_regs_wb_data);
                     CSR_ADDRESS_MIP:     machine_special_regs.mip     <= write_mip(csr_regs_wb_data);
-                    CSR_ADDRESS_MTVEC:   machine_special_regs.mtvec   <= {csr_regs_wb_data[31:2], MTVEC_MODE_DIRECT};
+                    CSR_ADDRESS_MTVEC:   machine_special_regs.mtvec   <= {csr_regs_wb_data[31:2], MTVEC_MODE_VECTORED};
                     CSR_ADDRESS_MSTATUS: machine_special_regs.mstatus <= write_mstatus(csr_regs_wb_data);
                     CSR_ADDRESS_MEPC:    machine_special_regs.mepc    <= csr_regs_wb_data;
                     CSR_ADDRESS_MCAUSE:  machine_special_regs.mcause  <= csr_regs_wb_data;

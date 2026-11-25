@@ -58,8 +58,11 @@ def csrrs_mip(mip, rs1):
     return old, write_mip(rs1 | old)
 
 
+MTVEC_MODE_VECTORED = 1
+
+
 def csrrw_mtvec(old, val):
-    return old, val & ~3
+    return old, (val & ~3) | MTVEC_MODE_VECTORED
 
 
 def csrrwi_mie(mie, uimm, do_write):
@@ -88,7 +91,7 @@ class Regs:
         self.x = [0] * 32
         self.mie = (False, False, False)
         self.mip = (False, False, False)
-        self.mtvec = 0
+        self.mtvec = MTVEC_MODE_VECTORED
         self.ram = {}
 
     def dump_expected(self, path):
@@ -170,7 +173,7 @@ def sim_csr_basic():
     r.x[27] = MISA
     r.x[30] = W_MEI
     r.x[1] = 0xFD
-    r.x[2] = 1
+    r.x[2] = 0
     r.x[3] = 0
     r.x[4] = 0
     r.x[30] = 0x1888

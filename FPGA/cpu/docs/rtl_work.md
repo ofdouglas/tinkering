@@ -14,6 +14,23 @@
 * Priviledge levels
 * Flush fewer instructions for CSR hazard
 
+## System Projects
+* GPIO interrupts
+* PWM peripheral
+* Reset controller (reset cause, SW reset request)
+* I2C
+
+## Later Projects -- Nexys Video
+* OLED
+* QSPI NOR Flash
+* SD Card
+* DRAM
+* Ethernet
+* Audio
+* HDMI
+
+
+
 ### UART
 There is also a receiver timing defect in uart.sv: it shifts the stop bit when rx_bit_count == 8, then waits another full bit period before completing at == 9. That should be completed at the stop-bit sample rather than delaying until the following bit.
 

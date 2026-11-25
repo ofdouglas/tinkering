@@ -6,10 +6,10 @@ _start:
      * mtvec setup
      * ================================================================ */
     1:
-    auipc x10, %pcrel_hi(_exception_entry)
+    auipc x10, %pcrel_hi(_vector_table)
     addi  x10, x10, %pcrel_lo(1b)
-    csrrw x11, mtvec, x10            /* verify x11 = 0x00000000 (old mtvec) */
-    csrrs x12, mtvec, x0             /* verify x12 = handler address */
+    csrrw x11, mtvec, x10            /* verify x11 = 0x00000001 (vectored reset) */
+    csrrs x12, mtvec, x0             /* verify x12 = vector table | 1 */
 
     /* Enable MEI in mie (per-interrupt enable). Global MIE stays off until
      * after the synchronous ECALL trap is exercised. */
@@ -56,12 +56,17 @@ _irq_wait:
     nop
 2:  j     2b
 
-.global _exception_entry
-_exception_entry:
-    csrrs x13, mcause, x0
-    lui   x31, 0x80000
-    and   x31, x31, x13
-    bne   x0,  x31, _irq_handler
+/* Vectored mtvec: exceptions at BASE, MEI at BASE+4*11. */
+.global _vector_table
+_vector_table:
+    j     _trap_handler
+    .rept 10
+    j     _unused_irq
+    .endr
+    j     _irq_handler
+
+_unused_irq:
+    j     _unused_irq
 
 _trap_handler:
     lui   x15, %hi(0x0000eca1)
@@ -75,6 +80,8 @@ _trap_handler:
     mret
 
 _irq_handler:
+    csrrs x13, mcause, x0             /* last mcause is MEI after this path */
+    lui   x31, 0x80000                /* verify x31 = interrupt bit from mcause */
     csrrs x8,  mepc, x0               /* verify x8  = interrupted PC (_irq_wait) */
     csrrs x7,  mcause, x0             /* verify x7  = 0x8000000B (MEI) */
     addi  x9,  x0,  0xFF              /* verify x9  = IRQ-handler marker */

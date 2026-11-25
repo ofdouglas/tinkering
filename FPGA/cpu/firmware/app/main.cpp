@@ -126,7 +126,7 @@ int main(void) {
         send_string_nonblocking("ERROR: MCP2515 initialization failed\n");
     }
 
-    csr_write_mie(MIE_MEI | MIE_MTI);
+    csr_write_mie(MIE_MEI | MIE_MTI | MIE_EXT_VECTOR);
     global_irq_enable();
 
     while (1) {
