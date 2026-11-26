@@ -81,21 +81,47 @@ typedef enum logic [0:0] { // funct_3[2]
     SHIFT_RIGHT  = 1'b1
 } alu_shift_e;
 
+// Controls ID stage mux
 typedef enum logic [1:0] {
-    ALU_LEFT_SRC_PC        = 2'b00,
-    ALU_LEFT_SRC_RS1       = 2'b01,
-    ALU_LEFT_SRC_IMM       = 2'b10,
-    ALU_LEFT_SRC_ZERO      = 2'b11
+    ALU_LEFT_SRC_ZERO      = 2'd0,
+    ALU_LEFT_SRC_IMM       = 2'd1,
+    ALU_LEFT_SRC_PC        = 2'd2,
+    ALU_LEFT_SRC_RS1       = 2'd3
 } alu_left_src_e;
-localparam alu_left_src_e ALU_LEFT_SRC_DONT_CARE = ALU_LEFT_SRC_PC;
+localparam alu_left_src_e ALU_LEFT_SRC_DONT_CARE = ALU_LEFT_SRC_IMM;
 
+// Controls ID stage mux
 typedef enum logic [1:0] {
-    ALU_RIGHT_SRC_RS2       = 2'b00,
-    ALU_RIGHT_SRC_IMM       = 2'b01,
-    ALU_RIGHT_SRC_CSR       = 2'b10,
-    ALU_RIGHT_SRC_ZERO      = 2'b11
+    ALU_RIGHT_SRC_ZERO      = 2'd0,
+    ALU_RIGHT_SRC_IMM       = 2'd1,
+    ALU_RIGHT_SRC_CSR       = 2'd2,
+    ALU_RIGHT_SRC_RS2       = 2'd3
 } alu_right_src_e;
-localparam alu_right_src_e ALU_RIGHT_SRC_DONT_CARE = ALU_RIGHT_SRC_RS2;
+localparam alu_right_src_e ALU_RIGHT_SRC_DONT_CARE = ALU_RIGHT_SRC_IMM;
+
+// Controls EX stage mux
+typedef enum logic [2:0] {
+    ALU_LEFT_MUX_DEFAULT     = 3'd0,
+    ALU_LEFT_MUX_DIRECT      = 3'd1,
+    ALU_LEFT_MUX_FWD_EX_RES  = 3'd2,
+    ALU_LEFT_MUX_FWD_EX_CSR  = 3'd3,
+    ALU_LEFT_MUX_FWD_EX_PC4  = 3'd4,
+    ALU_LEFT_MUX_FWD_MEM_RES = 3'd5,
+    ALU_LEFT_MUX_FWD_MEM_CSR = 3'd6,
+    ALU_LEFT_MUX_FWD_MEM_PC4 = 3'd7
+} alu_left_mux_e;
+
+// Controls EX stage mux
+typedef enum logic [2:0] {
+    ALU_RIGHT_MUX_DEFAULT     = 3'd0,
+    ALU_RIGHT_MUX_DIRECT      = 3'd1,
+    ALU_RIGHT_MUX_FWD_EX_RES  = 3'd2,
+    ALU_RIGHT_MUX_FWD_EX_CSR  = 3'd3,
+    ALU_RIGHT_MUX_FWD_EX_PC4  = 3'd4,
+    ALU_RIGHT_MUX_FWD_MEM_RES = 3'd5,
+    ALU_RIGHT_MUX_FWD_MEM_CSR = 3'd6,
+    ALU_RIGHT_MUX_FWD_MEM_PC4 = 3'd7
+} alu_right_mux_e;
 
 typedef enum logic [1:0] { // {funct_3[2], funct_3[0}
     CMP_EQ       = 2'b00,
@@ -119,12 +145,18 @@ typedef enum logic [0:0] { // funct_7[5]
    SHIFTER_CTRL_SRA  = 1'b1
 } shift_sign_e;
 
+typedef enum logic [1:0] {
+    EX_MUX_MUL_HI  = 2'd0,
+    EX_MUX_MUL_LO  = 2'd1,
+    EX_MUX_ALU     = 2'd2,
+    EX_MUX_DEFAULT = 2'd3
+} ex_mux_e;
+
 typedef enum logic [2:0] {
-    ALU_MUX_LOGIC   = 3'b000,
-    ALU_MUX_ADDER   = 3'b001,
-    ALU_MUX_SHIFT   = 3'b010,
-    ALU_MUX_COMPARE = 3'b011,
-    ALU_MUX_MUL     = 3'b100
+    ALU_MUX_COMPARE = 3'd0,
+    ALU_MUX_ADDER   = 3'd1,
+    ALU_MUX_SHIFT   = 3'd2,
+    ALU_MUX_LOGIC   = 3'd3
 } alu_mux_e;
 localparam alu_mux_e ALU_MUX_DEFAULT = ALU_MUX_LOGIC;
 
@@ -323,8 +355,11 @@ typedef struct packed {
 typedef struct packed {
     // Overall control
     alu_left_src_e  alu_left_src;
+    alu_left_mux_e  alu_left_mux;
     alu_right_src_e alu_right_src;
+    alu_right_mux_e alu_right_mux;
     alu_mux_e       alu_mux_ctrl;
+    ex_mux_e        ex_mux_ctrl;
 
     // Special functions
     adder_ctrl_e    adder_ctrl;
@@ -382,8 +417,9 @@ typedef struct packed {
 
 typedef struct packed {
     // Datapath
-    logic [31:0]       rs1_reg;
-    logic [31:0]       rs2_reg;
+    logic [31:0]       left_op;     // rs1, imm, or pc
+    logic [31:0]       right_op;    // rs2, imm, or csr
+    logic [31:0]       rs2_reg;     // For stores. TODO: optimize this out
     logic [31:0]       current_pc;
     logic [31:0]       immediate;
     logic [31:0]       csr_read;
@@ -407,6 +443,7 @@ typedef struct packed {
     logic [31:0]       exec_result; // Address, or WB data for main datapath or CSRs
     logic [31:0]       rs2_csr_reg;     // Memory store data, or CSR read -> x-registers
     logic [31:0]       current_pc;
+    logic [31:0]       pc_plus4;
     logic  [4:0]       rs2_index;
 
     // Control path

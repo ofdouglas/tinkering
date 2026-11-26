@@ -180,7 +180,7 @@ assign csr_address = fetch_regs.instruction[31:20];
 assign funct_12 = fetch_regs.instruction[31:20];
 
 // Datapath results
-logic [31:0] rs1_reg_mux, rs2_reg_mux, immediate_bits, csr_read;
+logic [31:0] rs1_reg_mux, rs2_reg_mux, id_left_op, id_right_op, immediate_bits, csr_read;
 
 // Control signals
 AluControls        alu_ctrl;
@@ -193,6 +193,8 @@ logic              csr_wb_hazard;
 logic              csr_wb_stall; // Stall on repeated access to same CSR
 logic              invalid_csr_read_address;
 logic              invalid_csr_write_address;
+
+logic decode_regs_wb, ex_regs_wb;
 
 assign csr_instruction = (opcode == OPCODE_SYSTEM && funct_3 != system_funct3_e'(SYS3_OTHER));
 
@@ -306,9 +308,16 @@ always_comb begin
     if_id_traps.ecall_instruction     = 1'b0;
 
     alu_ctrl               = '0;
+    // EX stage outputs
     alu_ctrl.alu_mux_ctrl  = ALU_MUX_DEFAULT;
+    alu_ctrl.ex_mux_ctrl   = EX_MUX_DEFAULT;
+    // EX stage inputs
+    alu_ctrl.alu_left_mux  = ALU_LEFT_MUX_DIRECT;
     alu_ctrl.alu_left_src  = ALU_LEFT_SRC_DONT_CARE;
+    alu_ctrl.alu_right_mux = ALU_RIGHT_MUX_DIRECT;
     alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
+    id_left_op        = '0;
+    id_right_op       = '0;
     jump_branch_ctrl  = '0;
     mem_ctrl          = '0;
     wb_ctrl           = '0;
@@ -407,9 +416,10 @@ always_comb begin
             wb_ctrl.writeback_en = 1'b1;
 
             if (funct_7 == MUL_TYPE_FUNCT7) begin
-                alu_ctrl.alu_mux_ctrl = ALU_MUX_MUL;
+                alu_ctrl.ex_mux_ctrl = EX_MUX_MUL_HI;
                 case (mul_type_e'(funct_3))
                     MUL_LOW: begin
+                        alu_ctrl.ex_mux_ctrl = EX_MUX_MUL_LO;
                         alu_ctrl.mul_ctrl.upper_result = '0;
                         alu_ctrl.mul_ctrl.rs1_signed   = '0;
                         alu_ctrl.mul_ctrl.rs2_signed   = '0;
@@ -547,6 +557,69 @@ always_comb begin
             alu_ctrl.alu_right_src = ALU_RIGHT_SRC_DONT_CARE;
         end
     endcase
+
+    // Simplify forwarding mux logic for later stages
+    // TODO: refactor this to use a more elegant solution
+    if (wb_ctrl.rd_reg_select == '0) begin
+        wb_ctrl.writeback_en = 1'b0;
+    end
+
+    unique case (alu_ctrl.alu_left_src)
+        ALU_LEFT_SRC_ZERO:  id_left_op = '0;
+        ALU_LEFT_SRC_IMM:   id_left_op = immediate_bits;
+        ALU_LEFT_SRC_PC:    id_left_op = fetch_regs.fetch_pc;
+        ALU_LEFT_SRC_RS1:   id_left_op = rs1_reg_mux;
+    endcase
+
+    unique case (alu_ctrl.alu_right_src)
+        ALU_RIGHT_SRC_ZERO:  id_right_op = '0;
+        ALU_RIGHT_SRC_IMM:   id_right_op = immediate_bits;
+        ALU_RIGHT_SRC_CSR:   id_right_op = csr_read;
+        ALU_RIGHT_SRC_RS2:   id_right_op = rs2_reg_mux;
+    endcase
+
+    decode_regs_wb = decode_regs.valid && decode_regs.wb_ctrl.writeback_en;
+    ex_regs_wb = execute_regs.valid && execute_regs.wb_ctrl.writeback_en;
+
+    if (alu_ctrl.alu_left_src == ALU_LEFT_SRC_RS1) begin
+        if (decode_regs_wb && (decode_regs.wb_ctrl.rd_reg_select == rs1_reg_select)) begin
+            if (decode_regs.wb_ctrl.csr_read) begin
+                alu_ctrl.alu_left_mux = ALU_LEFT_MUX_FWD_EX_CSR;
+            end else if (decode_regs.jump_branch_ctrl.is_jump_instr) begin
+                alu_ctrl.alu_left_mux = ALU_LEFT_MUX_FWD_EX_PC4;
+            end else begin
+                alu_ctrl.alu_left_mux = ALU_LEFT_MUX_FWD_EX_RES;
+            end
+        end else if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == rs1_reg_select)) begin
+            if (execute_regs.wb_ctrl.csr_read) begin
+                alu_ctrl.alu_left_mux = ALU_LEFT_MUX_FWD_MEM_CSR;
+            end else if (execute_regs.jump_branch_ctrl.is_jump_instr) begin
+                alu_ctrl.alu_left_mux = ALU_LEFT_MUX_FWD_MEM_PC4;
+            end else begin
+                alu_ctrl.alu_left_mux = ALU_LEFT_MUX_FWD_MEM_RES;
+            end
+        end
+    end
+
+    if (alu_ctrl.alu_right_src == ALU_RIGHT_SRC_RS2) begin
+        if (decode_regs_wb && (decode_regs.wb_ctrl.rd_reg_select == rs2_reg_select)) begin
+            if (decode_regs.wb_ctrl.csr_read) begin
+                alu_ctrl.alu_right_mux = ALU_RIGHT_MUX_FWD_EX_CSR;
+            end else if (decode_regs.jump_branch_ctrl.is_jump_instr) begin
+                alu_ctrl.alu_right_mux = ALU_RIGHT_MUX_FWD_EX_PC4;
+            end else begin
+                alu_ctrl.alu_right_mux = ALU_RIGHT_MUX_FWD_EX_RES;
+            end
+        end else if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == rs2_reg_select)) begin
+            if (execute_regs.wb_ctrl.csr_read) begin
+                alu_ctrl.alu_right_mux = ALU_RIGHT_MUX_FWD_MEM_CSR;
+            end else if (execute_regs.jump_branch_ctrl.is_jump_instr) begin
+                alu_ctrl.alu_right_mux = ALU_RIGHT_MUX_FWD_MEM_PC4;
+            end else begin
+                alu_ctrl.alu_right_mux = ALU_RIGHT_MUX_FWD_MEM_RES;
+            end
+        end
+    end
 end
 
 // Static branch predictor:
@@ -572,7 +645,8 @@ always_ff @(posedge clk) begin
         decode_regs <= '0;
     end else begin
         // Data path
-        decode_regs.rs1_reg                <= rs1_reg_mux;
+        decode_regs.left_op                <= id_left_op;
+        decode_regs.right_op               <= id_right_op;
         decode_regs.rs2_reg                <= rs2_reg_mux;
         decode_regs.current_pc             <= fetch_regs.fetch_pc;
         decode_regs.immediate              <= immediate_bits;
@@ -600,54 +674,65 @@ end
 logic [63:0] multiplier_full_result;
 logic [31:0] mul_result;
 logic [31:0] alu_left, alu_right, rs2_store_value;
-logic [31:0] logic_result, shifter_result, adder_sum, alu_result;
+logic [31:0] logic_result, shifter_result, adder_sum, alu_result, ex_result;
 logic negative_flag;
 logic compare_result;
 
 // Operand muxing
 always_comb begin
+    // Retained for rs2 forwarding logic (for now)
     logic ex_regs_wb, mem_regs_wb;
     ex_regs_wb  = execute_regs.valid && execute_regs.wb_ctrl.writeback_en && execute_regs.wb_ctrl.rd_reg_select != '0;
     mem_regs_wb = memory_regs.valid && memory_regs.wb_ctrl.writeback_en && memory_regs.wb_ctrl.rd_reg_select != '0;
 
     // ALU Left Operand
-    case (decode_regs.alu_ctrl.alu_left_src)
-        ALU_LEFT_SRC_RS1: begin
-            if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs1_index)) begin
-                alu_left = execute_rd_data(execute_regs);
-            end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs1_index)) begin
-                alu_left = memory_rd_data(memory_regs);
-            end else begin
-                alu_left = decode_regs.rs1_reg;
-            end
+    unique case (decode_regs.alu_ctrl.alu_left_mux)
+        ALU_LEFT_MUX_DIRECT, ALU_LEFT_MUX_DEFAULT: begin
+            alu_left = decode_regs.left_op;
         end
-        ALU_LEFT_SRC_PC:  begin
-            alu_left = decode_regs.current_pc;
+        ALU_LEFT_MUX_FWD_EX_RES: begin
+            alu_left = execute_regs.exec_result;
         end
-        ALU_LEFT_SRC_IMM: begin
-            alu_left = decode_regs.immediate;
+        ALU_LEFT_MUX_FWD_EX_CSR: begin
+            alu_left = execute_regs.rs2_csr_reg;
         end
-        default: alu_left = '0;
+        ALU_LEFT_MUX_FWD_EX_PC4: begin
+            alu_left = execute_regs.pc_plus4;
+        end
+        ALU_LEFT_MUX_FWD_MEM_RES: begin
+            alu_left = memory_regs.writeback_data;
+        end
+        ALU_LEFT_MUX_FWD_MEM_CSR: begin
+            alu_left = memory_regs.csr_read_data;
+        end
+        ALU_LEFT_MUX_FWD_MEM_PC4: begin
+            alu_left = memory_regs.pc_plus4;
+        end
     endcase
 
     // ALU Right Operand
-    case (decode_regs.alu_ctrl.alu_right_src)
-        ALU_RIGHT_SRC_RS2: begin
-            if (ex_regs_wb && (execute_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
-                alu_right = execute_rd_data(execute_regs);
-            end else if (mem_regs_wb && (memory_regs.wb_ctrl.rd_reg_select == decode_regs.rs2_index)) begin
-                alu_right = memory_rd_data(memory_regs);
-            end else begin
-                alu_right = decode_regs.rs2_reg;
-            end
+    unique case (decode_regs.alu_ctrl.alu_right_mux)
+        ALU_RIGHT_MUX_DIRECT, ALU_RIGHT_MUX_DEFAULT: begin
+            alu_right = decode_regs.right_op;
         end
-        ALU_RIGHT_SRC_IMM: begin
-            alu_right = decode_regs.immediate;
+        ALU_RIGHT_MUX_FWD_EX_RES: begin
+            alu_right = execute_regs.exec_result;
         end
-        ALU_RIGHT_SRC_CSR: begin
-            alu_right = decode_regs.csr_read;
+        ALU_RIGHT_MUX_FWD_EX_CSR: begin
+            alu_right = execute_regs.rs2_csr_reg;
         end
-        default: alu_right = '0;
+        ALU_RIGHT_MUX_FWD_EX_PC4: begin
+            alu_right = execute_regs.pc_plus4;
+        end
+        ALU_RIGHT_MUX_FWD_MEM_RES: begin
+            alu_right = memory_regs.writeback_data;
+        end
+        ALU_RIGHT_MUX_FWD_MEM_CSR: begin
+            alu_right = memory_regs.csr_read_data;
+        end
+        ALU_RIGHT_MUX_FWD_MEM_PC4: begin
+            alu_right = memory_regs.pc_plus4;
+        end
     endcase
 
     // rs2 for store instructions and CSR read
@@ -669,7 +754,6 @@ always_comb begin
     multiplier_right = {decode_regs.alu_ctrl.mul_ctrl.rs2_signed ? alu_right[31] : 1'b0, alu_right};
 
     multiplier_full_result = $signed(multiplier_left) * $signed(multiplier_right);
-    mul_result = decode_regs.alu_ctrl.mul_ctrl.upper_result ? multiplier_full_result[63:32] : multiplier_full_result[31:0];
 end
 
 // Shifter and Logic units
@@ -759,15 +843,22 @@ always_comb begin
     branch_redirect_mispredicted = decode_regs.valid && !branch_taken && decode_regs.branch_redirect_predicted;
 end
 
-// ALU Result
+// ALU Result Muxes. The multiplier is separated from the ALU because it is
+// on the critical path.
 always_comb begin
     case (alu_mux_e'(decode_regs.alu_ctrl.alu_mux_ctrl))
-        ALU_MUX_LOGIC:    alu_result = logic_result;
+        ALU_MUX_COMPARE:  alu_result = {31'b0, compare_result};
         ALU_MUX_ADDER:    alu_result = adder_sum;
         ALU_MUX_SHIFT:    alu_result = shifter_result;
-        ALU_MUX_COMPARE:  alu_result = {31'b0, compare_result};
-        ALU_MUX_MUL:      alu_result = mul_result;
-        default:          alu_result = {31'b0, compare_result};
+        ALU_MUX_LOGIC:    alu_result = logic_result;
+        default:          alu_result = logic_result;
+    endcase
+
+    case (ex_mux_e'(decode_regs.alu_ctrl.ex_mux_ctrl))
+        EX_MUX_MUL_HI:   ex_result = multiplier_full_result[63:32];
+        EX_MUX_MUL_LO:   ex_result = multiplier_full_result[31:0];
+        EX_MUX_ALU:      ex_result = alu_result;
+        default:         ex_result = alu_result;
     endcase
 end
 
@@ -780,10 +871,11 @@ always_ff @(posedge clk) begin
     end else if (flush_ex_stage) begin
         execute_regs <= '0;
     end else begin
-        execute_regs.exec_result      <= alu_result;
-        // Forward unmodified rs2 for store instructions, unmodified PC for JAL/JALR
+        execute_regs.exec_result      <= ex_result;
+        // Forward unmodified rs2 for store instructions
         execute_regs.rs2_csr_reg      <= rs2_store_value;
         execute_regs.current_pc       <= decode_regs.current_pc;
+        execute_regs.pc_plus4         <= decode_regs.current_pc + 32'd4;
         execute_regs.rs2_index        <= decode_regs.rs2_index;
 
         execute_regs.valid            <= decode_regs.valid;
